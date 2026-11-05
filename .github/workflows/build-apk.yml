@@ -21,8 +21,10 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # No "-Pdist=ci" here on purpose: that flag switches on Mihon's own
+      # Firebase crash reporting, which is tied to the package name app.mihon.
       - name: Build APK
-        run: ./gradlew assembleRelease -Pdist=ci
+        run: ./gradlew assembleRelease
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
