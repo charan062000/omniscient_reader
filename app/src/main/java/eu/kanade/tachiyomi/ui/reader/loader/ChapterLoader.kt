@@ -20,6 +20,7 @@ import tachiyomi.domain.source.model.StubSource
 import tachiyomi.i18n.MR
 import tachiyomi.source.local.LocalSource
 import tachiyomi.source.local.io.Format
+import tachiyomi.source.local.io.PdfReader
 
 /**
  * Loader used to retrieve the [PageLoader] for a given chapter.
@@ -104,6 +105,7 @@ class ChapterLoader(
                     is Format.Directory -> DirectoryPageLoader(format.file)
                     is Format.Archive -> ArchivePageLoader(format.file.archiveReader(context))
                     is Format.Epub -> EpubPageLoader(format.file.epubReader(context))
+                    is Format.Pdf -> PdfPageLoader(PdfReader(context, format.file))
                 }
             }
             source is HttpSource -> HttpPageLoader(chapter, source, chapterCache, appScope, canLoadAhead)
