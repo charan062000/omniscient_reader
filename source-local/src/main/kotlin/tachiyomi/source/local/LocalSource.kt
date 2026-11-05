@@ -48,8 +48,10 @@ import tachiyomi.source.local.image.LocalCoverManager
 import tachiyomi.source.local.io.Archive
 import tachiyomi.source.local.io.Format
 import tachiyomi.source.local.io.LocalSourceFileSystem
+import tachiyomi.source.local.io.PdfReader
 import tachiyomi.source.local.metadata.fillMetadata
 import uy.kohesive.injekt.injectLazy
+import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import kotlin.time.Duration.Companion.days
@@ -294,7 +296,7 @@ class LocalSource(
         val chapters = fileSystem.getFilesInMangaDirectory(manga.url)
             // Only keep supported formats
             .filterNot { it.name.orEmpty().startsWith('.') }
-            .filter { it.isDirectory || Archive.isSupported(it) || it.extension.equals("epub", true) }
+            .filter { it.isDirectory || Archive.isSupported(it) || it.extension.equals("epub", true) || it.extension.equals("pdf", true) }
             .map { chapterFile ->
                 SChapter.create().apply {
                     url = "${manga.url}/${chapterFile.name}"
@@ -314,6 +316,8 @@ class LocalSource(
                             format.file.epubReader(context).use { epub ->
                                 epub.fillMetadata(manga, this)
                             }
+                        } else if (format is Format.Pdf) {
+                            // PDF files carry no ComicInfo.xml, nothing to read here
                         } else {
                             getComicInfoForChapter(chapterFile) { stream ->
                                 setChapterDetailsFromComicInfoFile(stream, this)
@@ -393,6 +397,11 @@ class LocalSource(
                         val entry = epub.getImagesFromPages().firstOrNull()
 
                         entry?.let { coverManager.update(manga, epub.getInputStream(it)!!) }
+                    }
+                }
+                is Format.Pdf -> {
+                    PdfReader(context, format.file).use { pdf ->
+                        coverManager.update(manga, ByteArrayInputStream(pdf.getPageBytes(0)))
                     }
                 }
             }
