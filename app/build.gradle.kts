@@ -35,7 +35,7 @@ android {
     namespace = "eu.kanade.tachiyomi"
 
     defaultConfig {
-           applicationId = "com.omniscient.reader"
+        applicationId = "com.omniscient.reader"
 
         versionCode = 39
         versionName = "0.21.3"
