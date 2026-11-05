@@ -296,7 +296,7 @@ class LocalSource(
         val chapters = fileSystem.getFilesInMangaDirectory(manga.url)
             // Only keep supported formats
             .filterNot { it.name.orEmpty().startsWith('.') }
-            .filter { it.isDirectory || Archive.isSupported(it) || it.extension.equals("epub", true) || it.extension.equals("pdf", true) }
+            .filter { it.isDirectory || Archive.isSupported(it) || it.isEpubOrPdf() }
             .map { chapterFile ->
                 SChapter.create().apply {
                     url = "${manga.url}/${chapterFile.name}"
@@ -418,6 +418,8 @@ class LocalSource(
         private val LATEST_THRESHOLD = 7.days.inWholeMilliseconds
     }
 }
+
+private fun UniFile.isEpubOrPdf() = extension.equals("epub", true) || extension.equals("pdf", true)
 
 fun Manga.isLocal(): Boolean = source == LocalSource.ID
 
