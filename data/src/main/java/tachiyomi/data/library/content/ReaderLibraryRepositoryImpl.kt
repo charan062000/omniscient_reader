@@ -47,6 +47,22 @@ class ReaderLibraryRepositoryImpl(
         )
     }
 
+    override suspend fun restoreContent(content: ReaderContent) {
+        database.reader_contentQueries.restoreContent(
+            id = content.id,
+            type = content.type.name,
+            title = content.title,
+            contentUri = content.uri,
+            coverUri = content.coverUri,
+            favorite = content.favorite,
+            addedAt = content.addedAt,
+            lastOpenedAt = content.lastOpenedAt,
+            progress = content.progress.coerceAtLeast(0),
+            progressTotal = content.progressTotal.coerceAtLeast(0),
+            author = content.author,
+        )
+    }
+
     override suspend fun remove(id: String) {
         database.transaction {
             database.reader_contentQueries.removePdfAnnotationsForDocument(id)
@@ -114,6 +130,22 @@ class ReaderLibraryRepositoryImpl(
 
     override suspend fun removeEpubBookmark(bookmarkId: Long) {
         database.reader_contentQueries.removeBookmark(bookmarkId)
+    }
+
+    override suspend fun replaceEpubBookmarks(bookId: String, bookmarks: List<EpubBookmark>) {
+        database.transaction {
+            database.reader_contentQueries.removeAllBookmarks(bookId)
+            bookmarks.forEach { bookmark ->
+                database.reader_contentQueries.insertBookmark(
+                    bookId,
+                    bookmark.chapterIndex,
+                    bookmark.chapterTitle,
+                    bookmark.selectedText,
+                    bookmark.context,
+                    bookmark.createdAt,
+                )
+            }
+        }
     }
 
     override fun observePdfAnnotations(documentId: String): Flow<List<PdfAnnotation>> =

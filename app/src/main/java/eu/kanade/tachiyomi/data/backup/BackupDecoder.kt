@@ -5,6 +5,7 @@ import android.net.Uri
 import dev.zacsweers.metro.Inject
 import eu.kanade.tachiyomi.data.backup.models.Backup
 import eu.kanade.tachiyomi.data.backup.models.BackupManga
+import eu.kanade.tachiyomi.data.backup.models.ReaderBackupEntry
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.DeserializationStrategy
@@ -30,6 +31,10 @@ class BackupDecoder(
             orInvalid {
                 var entryCount = 0
                 while (reader.nextEntry()) {
+                    if (reader.entryType != EntryType.MANGA) {
+                        reader.skipEntry()
+                        continue
+                    }
                     reader.skipEntry()
                     entryCount++
                 }
@@ -46,8 +51,12 @@ class BackupDecoder(
         return read(uri) { reader ->
             var entryCount = 0
             while (orInvalid { reader.nextEntry() }) {
-                onEntry(orInvalid { reader.readEntry(entry) })
-                entryCount++
+                if (reader.entryType == EntryType.MANGA) {
+                    onEntry(orInvalid { reader.readEntry(entry) })
+                    entryCount++
+                } else {
+                    reader.skipEntry()
+                }
             }
             Metadata(entryCount, orInvalid { reader.readMetadata() })
         }
@@ -59,7 +68,23 @@ class BackupDecoder(
     fun decodeEntries(uri: Uri): Flow<BackupManga> = flow {
         read(uri) { reader ->
             while (orInvalid { reader.nextEntry() }) {
-                emit(orInvalid { reader.readEntry() })
+                if (reader.entryType == EntryType.MANGA) {
+                    emit(orInvalid { reader.readEntry() })
+                } else {
+                    reader.skipEntry()
+                }
+            }
+        }
+    }
+
+    fun decodeReaderEntries(uri: Uri): Flow<ReaderBackupEntry> = flow {
+        read(uri) { reader ->
+            while (orInvalid { reader.nextEntry() }) {
+                if (reader.entryType == EntryType.MANGA) {
+                    reader.skipEntry()
+                } else {
+                    emit(orInvalid { reader.readReaderEntry() })
+                }
             }
         }
     }

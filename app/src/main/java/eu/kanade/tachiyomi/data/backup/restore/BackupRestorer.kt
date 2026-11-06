@@ -7,6 +7,7 @@ import dev.zacsweers.metro.AssistedFactory
 import dev.zacsweers.metro.AssistedInject
 import eu.kanade.tachiyomi.data.backup.BackupDecoder
 import eu.kanade.tachiyomi.data.backup.BackupNotifier
+import eu.kanade.tachiyomi.data.backup.UnifiedReaderBackupService
 import eu.kanade.tachiyomi.data.backup.models.BackupCategory
 import eu.kanade.tachiyomi.data.backup.models.BackupExtensionStore
 import eu.kanade.tachiyomi.data.backup.models.BackupPreference
@@ -23,6 +24,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.chunked
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import logcat.LogPriority
 import tachiyomi.core.common.i18n.stringResource
@@ -53,6 +55,7 @@ class BackupRestorer(
     private val backupDecoder: BackupDecoder,
     private val sourceManager: SourceManager,
     private val stubSourceRepository: StubSourceRepository,
+    private val unifiedReaderBackupService: UnifiedReaderBackupService,
 ) {
 
     @AssistedFactory
@@ -142,6 +145,15 @@ class BackupRestorer(
                     if (options.categories) backup.backupCategories else emptyList(),
                     restoreCategoriesJob,
                 )
+            }
+            if (options.libraryEntries || options.appSettings) {
+                restoreCategoriesJob?.join()
+                val readerErrors = unifiedReaderBackupService.restore(
+                    entries = if (options.libraryEntries) backupDecoder.decodeReaderEntries(uri) else emptyFlow(),
+                    globalPreferences = if (options.appSettings) backup.backupReaderPreferences else emptyList(),
+                    backupVersion = backup.readerBackupVersion,
+                )
+                readerErrors.forEach { errors.add(Date() to it) }
             }
             if (options.extensionStores) {
                 restoreExtensionStores(backup.backupExtensionStores)

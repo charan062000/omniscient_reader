@@ -36,7 +36,8 @@ class LocalMediaService(
         val destination = File(root, "$id/${safeName(titleWithExtension)}")
         destination.parentFile?.mkdirs()
         if (!destination.exists()) {
-            val input = appContext.contentResolver.openInputStream(source) ?: throw IOException("The selected image is no longer available")
+            val input = appContext.contentResolver.openInputStream(source)
+                ?: throw IOException("The selected image is no longer available")
             val temp = File(destination.parentFile, "${destination.name}.partial")
             try {
                 input.use { stream -> temp.outputStream().buffered().use { output ->
@@ -57,7 +58,9 @@ class LocalMediaService(
                 throw error
             }
         }
-        val detected = runCatching { tachiyomi.core.common.util.system.ImageUtil.findImageType { destination.inputStream() } }.getOrNull()
+        val detected = runCatching {
+            tachiyomi.core.common.util.system.ImageUtil.findImageType { destination.inputStream() }
+        }.getOrNull()
         if (detected == null || detected == tachiyomi.core.common.util.system.ImageUtil.ImageType.GIF) {
             destination.delete()
             throw IOException("The selected file is not a readable image")
@@ -89,7 +92,9 @@ class LocalMediaService(
         val destination = File(gifRoot, "$id/${safeName(sourceName)}")
         destination.parentFile?.mkdirs()
         if (!destination.exists()) copySource(source, destination)
-        val imageType = runCatching { tachiyomi.core.common.util.system.ImageUtil.findImageType { destination.inputStream() } }.getOrNull()
+        val imageType = runCatching {
+            tachiyomi.core.common.util.system.ImageUtil.findImageType { destination.inputStream() }
+        }.getOrNull()
         if (imageType != tachiyomi.core.common.util.system.ImageUtil.ImageType.GIF) {
             destination.delete()
             throw IOException("The selected GIF could not be decoded")
@@ -114,7 +119,8 @@ class LocalMediaService(
 
     suspend fun importVideo(source: Uri, collectionId: Long? = null): ReaderContent = withContext(Dispatchers.IO) {
         val sourceName = displayName(source)
-        if (LocalMediaKind.identify(appContext.contentResolver.getType(source), sourceName) != ReaderContentType.VIDEO) {
+        if (LocalMediaKind.identify(appContext.contentResolver.getType(source),
+             sourceName) != ReaderContentType.VIDEO) {
             throw IOException("The selected file is not a supported video")
         }
         val id = "video:${stableId(source.toString())}"
@@ -140,7 +146,8 @@ class LocalMediaService(
 
     suspend fun importArchive(source: Uri, collectionId: Long? = null): ReaderContent = withContext(Dispatchers.IO) {
         val sourceName = displayName(source)
-        if (LocalMediaKind.identify(appContext.contentResolver.getType(source), sourceName) != ReaderContentType.ARCHIVE) {
+        if (LocalMediaKind.identify(appContext.contentResolver.getType(source),
+             sourceName) != ReaderContentType.ARCHIVE) {
             throw IOException("The selected file is not a supported archive")
         }
         val id = "archive:${stableId(source.toString())}"
@@ -175,7 +182,8 @@ class LocalMediaService(
     }
 
     suspend fun scanImageFolder(treeUri: Uri): ScanResult = withContext(Dispatchers.IO) {
-        runCatching { appContext.contentResolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        runCatching { appContext.contentResolver.takePersistableUriPermission(treeUri,
+             Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         val directory = UniFile.fromUri(appContext, treeUri)?.takeIf { it.isDirectory }
             ?: throw IOException("The selected folder is no longer available")
         val errors = mutableListOf<String>()
@@ -191,7 +199,10 @@ class LocalMediaService(
                 } else {
                     scanned++
                     val type = LocalMediaKind.identify(null, child.name.orEmpty())
-                    if (type in setOf(ReaderContentType.IMAGE, ReaderContentType.GIF, ReaderContentType.VIDEO, ReaderContentType.ARCHIVE)) {
+                    if (type in setOf(ReaderContentType.IMAGE,
+                         ReaderContentType.GIF,
+                         ReaderContentType.VIDEO,
+                         ReaderContentType.ARCHIVE)) {
                         runCatching {
                             val categoryId = ensureCollection(relative.ifBlank { directory.name ?: "Scanned media" })
                             when (type) {
@@ -266,7 +277,8 @@ class LocalMediaService(
         }
     }
 
-    private fun safeName(name: String): String = name.substringAfterLast('/').substringAfterLast('\\').replace(Regex("[^A-Za-z0-9._ -]"), "_").take(180).ifBlank { "image" }
+    private fun safeName(name: String): String = name.substringAfterLast('/').substringAfterLast('\\').replace(Regex("[^A-Za-z0-9._ -]"),
+         "_").take(180).ifBlank { "image" }
 
     private fun stableId(value: String): String = MessageDigest.getInstance("SHA-256")
         .digest(value.toByteArray())
@@ -290,8 +302,10 @@ object LocalMediaKind {
         val ext = fileName.substringAfterLast('.', "").lowercase()
         return when {
             ext == "gif" || mimeType.equals("image/gif", ignoreCase = true) -> ReaderContentType.GIF
-            ext in IMAGE_EXTENSIONS || mimeType.orEmpty().startsWith("image/", ignoreCase = true) -> ReaderContentType.IMAGE
-            mimeType.orEmpty().startsWith("video/", ignoreCase = true) || ext in VIDEO_EXTENSIONS -> ReaderContentType.VIDEO
+            ext in IMAGE_EXTENSIONS || mimeType.orEmpty().startsWith("image/",
+                 ignoreCase = true) -> ReaderContentType.IMAGE
+            mimeType.orEmpty().startsWith("video/",
+                 ignoreCase = true) || ext in VIDEO_EXTENSIONS -> ReaderContentType.VIDEO
             ext in ARCHIVE_EXTENSIONS -> ReaderContentType.ARCHIVE
             else -> null
         }

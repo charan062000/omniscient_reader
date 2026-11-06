@@ -51,10 +51,18 @@ fun LocalArchiveBrowser(content: ReaderContent, onDismiss: () -> Unit, onPreview
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (currentPath.isBlank()) content.title else currentPath.trimEnd('/').substringAfterLast('/')) },
+        title = {
+            Text(
+                if (currentPath.isBlank()) content.title
+                else currentPath.trimEnd('/').substringAfterLast('/'),
+            )
+        },
+
         text = {
             Column {
-                if (currentPath.isNotBlank()) Text("..", Modifier.fillMaxWidth().clickable { currentPath = currentPath.substringBeforeLast('/', "") }.padding(12.dp))
+                if (currentPath.isNotBlank()) Text("..",
+                     Modifier.fillMaxWidth().clickable { currentPath = currentPath.substringBeforeLast('/',
+                     "") }.padding(12.dp))
                 when {
                     loading -> Text("Reading archive…")
                     error != null -> Text(error!!)
@@ -66,15 +74,24 @@ fun LocalArchiveBrowser(content: ReaderContent, onDismiss: () -> Unit, onPreview
                                 modifier = Modifier.fillMaxWidth().clickable {
                                     if (row.directory) currentPath = row.path
                                     else if (row.previewable) scope.launch {
-                                        runCatching { withContext(Dispatchers.IO) { ArchivePathIndex.extractPreview(archiveFile, row.path, context.cacheDir) } }
+                                         runCatching {
+                                             withContext(Dispatchers.IO) {
+                                                 ArchivePathIndex.extractPreview(archiveFile, row.path, context.cacheDir)
+                                             }
+                                         }
                                             .onSuccess { file ->
                                                 onPreview(
                                                     ReaderContent(
                                                         id = "archive-preview:${content.id}:${row.path}",
                                                         type = ReaderContentType.IMAGE,
                                                         title = row.name.substringBeforeLast('.', row.name),
-                                                        uri = Uri.fromFile(file).toString(), coverUri = Uri.fromFile(file).toString(),
-                                                        favorite = false, addedAt = System.currentTimeMillis(), lastOpenedAt = null,
+                                                        uri = Uri.fromFile(file).toString(),
+                                                             coverUri = Uri.fromFile(file).toString(),
+
+                                                        favorite = false,
+                                                             addedAt = System.currentTimeMillis(),
+                                                             lastOpenedAt = null,
+
                                                         progress = 0, progressTotal = 1,
                                                     ),
                                                 )
@@ -107,7 +124,11 @@ internal object ArchivePathIndex {
         return try {
             ArchiveReader(pfd).use { reader ->
                 reader.useEntries { seq ->
-                    val names = seq.filter { it.isFile }.take(MAX_ARCHIVE_ENTRIES + 1).map { it.name.take(MAX_ENTRY_NAME_CHARS) }.toList()
+                    val names = seq
+                        .filter { it.isFile }
+                        .take(MAX_ARCHIVE_ENTRIES + 1)
+                        .map { it.name.take(MAX_ENTRY_NAME_CHARS) }
+                        .toList()
                     if (names.size > MAX_ARCHIVE_ENTRIES) throw IOException("Archives with more than $MAX_ARCHIVE_ENTRIES entries are not supported")
                     names
                 }
@@ -128,7 +149,12 @@ internal object ArchivePathIndex {
             if (segment.isBlank()) return@forEach
             val directory = '/' in rest
             val path = prefix + segment + if (directory) "/" else ""
-            rows.putIfAbsent(path, ArchiveRow(segment, path, directory, !directory && segment.substringAfterLast('.', "").lowercase() in imageExtensions))
+            rows.putIfAbsent(path,
+                 ArchiveRow(segment,
+                 path,
+                 directory,
+                 !directory && segment.substringAfterLast('.',
+                 "").lowercase() in imageExtensions))
         }
         return rows.values.sortedWith(compareByDescending<ArchiveRow> { it.directory }.thenBy { it.name.lowercase() })
     }
@@ -136,7 +162,8 @@ internal object ArchivePathIndex {
     fun extractPreview(file: File, entryName: String, cacheDirectory: File): File {
         if (entryName.replace('\\', '/').split('/').any { it == ".." }) throw IOException("Invalid archive entry path")
         val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-        val output = File(cacheDirectory, "archive-preview-${entryName.hashCode().toUInt().toString(16)}.${entryName.substringAfterLast('.', "img").take(8)}")
+        val output = File(cacheDirectory,
+             "archive-preview-${entryName.hashCode().toUInt().toString(16)}.${entryName.substringAfterLast('.', "img").take(8)}")
         try {
             ArchiveReader(pfd).use { reader ->
                 val input = reader.getInputStream(entryName) ?: throw IOException("Archive entry not found")

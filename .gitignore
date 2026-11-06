@@ -11,6 +11,7 @@ build
 
 # Configuration files
 keystore.properties
+release-keystore.properties
 local.properties
 
 # macOS specific files

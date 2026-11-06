@@ -30,6 +30,23 @@ if (Config.includeTelemetry) {
 }
 
 val keystorePropertiesFile = layout.settingsDirectory.file("keystore.properties").asFile
+val releaseKeystorePropertiesFile = layout.settingsDirectory.file("release-keystore.properties").asFile
+val releaseKeystoreProperties = if (releaseKeystorePropertiesFile.exists()) {
+    FileInputStream(releaseKeystorePropertiesFile).use { Properties().apply { load(it) } }
+} else {
+    Properties()
+}
+val isCiRelease = System.getenv("MIHON_GITHUB_RELEASE").toBoolean()
+val releaseSigningValues = listOf(
+    System.getenv("OMNISCIENT_RELEASE_STORE_FILE") ?: if (isCiRelease) System.getenv("storeFile") else releaseKeystoreProperties.getProperty("storeFile"),
+    System.getenv("OMNISCIENT_RELEASE_STORE_PASSWORD") ?: if (isCiRelease) System.getenv("storePassword") else releaseKeystoreProperties.getProperty("storePassword"),
+    System.getenv("OMNISCIENT_RELEASE_KEY_ALIAS") ?: if (isCiRelease) System.getenv("keyAlias") else releaseKeystoreProperties.getProperty("keyAlias"),
+    System.getenv("OMNISCIENT_RELEASE_KEY_PASSWORD") ?: if (isCiRelease) System.getenv("keyPassword") else releaseKeystoreProperties.getProperty("keyPassword"),
+)
+require(releaseSigningValues.all { it.isNullOrBlank() } || releaseSigningValues.all { !it.isNullOrBlank() }) {
+    "Configure all four release signing values, or leave them all unset for an unsigned local release build."
+}
+val bundleRequested = gradle.startParameter.taskNames.any { it.contains("bundle", ignoreCase = true) }
 
 android {
     namespace = "eu.kanade.tachiyomi"
@@ -68,6 +85,17 @@ android {
         }
     }
 
+    if (releaseSigningValues.all { !it.isNullOrBlank() }) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(releaseSigningValues[0]!!)
+                storePassword = releaseSigningValues[1]
+                keyAlias = releaseSigningValues[2]
+                keyPassword = releaseSigningValues[3]
+            }
+        }
+    }
+
     buildTypes {
         val debug = getByName("debug") {
             applicationIdSuffix = ".dev"
@@ -77,7 +105,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
 
-            signingConfig = debug.signingConfig
+            signingConfig = signingConfigs.findByName("release")
 
             isProfileable = true
 
@@ -125,7 +153,9 @@ android {
 
     splits {
         abi {
-            isEnable = true
+            // R8 emits one shrunk resource per APK ABI; Bundletool needs a single resource output.
+            // Keep split APK behavior for normal APK builds and disable it only for AAB tasks.
+            isEnable = !bundleRequested
             isUniversalApk = true
             reset()
             include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")

@@ -12,6 +12,7 @@ interface ReaderLibraryRepository {
     fun observeAll(type: ReaderContentType? = null): Flow<List<ReaderContent>>
     suspend fun get(id: String): ReaderContent?
     suspend fun upsert(content: ReaderContent)
+    suspend fun restoreContent(content: ReaderContent)
     suspend fun remove(id: String)
     suspend fun setFavorite(id: String, favorite: Boolean)
     suspend fun updateProgress(id: String, progress: Long, total: Long, openedAt: Long)
@@ -28,6 +29,7 @@ interface ReaderLibraryRepository {
         selectedText: String?,
         context: String?,
     )
+    suspend fun replaceEpubBookmarks(bookId: String, bookmarks: List<EpubBookmark>)
     suspend fun removeEpubBookmark(bookmarkId: Long)
     fun observePdfAnnotations(documentId: String): Flow<List<PdfAnnotation>>
     suspend fun upsertPdfAnnotation(annotation: PdfAnnotation)

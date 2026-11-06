@@ -9,6 +9,7 @@ import dev.zacsweers.metro.AssistedInject
 import eu.kanade.tachiyomi.BuildConfig
 import eu.kanade.tachiyomi.data.backup.BackupFileValidator
 import eu.kanade.tachiyomi.data.backup.BackupWriter
+import eu.kanade.tachiyomi.data.backup.UnifiedReaderBackupService
 import eu.kanade.tachiyomi.data.backup.create.creators.CategoriesBackupCreator
 import eu.kanade.tachiyomi.data.backup.create.creators.ExtensionStoresBackupCreator
 import eu.kanade.tachiyomi.data.backup.create.creators.MangaBackupCreator
@@ -21,6 +22,7 @@ import eu.kanade.tachiyomi.data.backup.models.BackupManga
 import eu.kanade.tachiyomi.data.backup.models.BackupPreference
 import eu.kanade.tachiyomi.data.backup.models.BackupSource
 import eu.kanade.tachiyomi.data.backup.models.BackupSourcePreferences
+import eu.kanade.tachiyomi.data.backup.models.READER_BACKUP_VERSION
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.serialization.protobuf.ProtoBuf
@@ -55,6 +57,7 @@ class BackupCreator(
     private val extensionStoresBackupCreator: ExtensionStoresBackupCreator,
     private val sourcesBackupCreator: SourcesBackupCreator,
     private val backupFileValidator: BackupFileValidator,
+    private val unifiedReaderBackupService: UnifiedReaderBackupService,
 ) {
     @AssistedFactory
     fun interface Factory {
@@ -100,6 +103,7 @@ class BackupCreator(
                         writer.writeEntry(manga)
                         sourceIds += manga.source
                     }
+                    unifiedReaderBackupService.write(writer, options.libraryEntries)
                     writer.writeMetadata(
                         Backup(
                             backupManga = emptyList(),
@@ -108,6 +112,12 @@ class BackupCreator(
                             backupPreferences = backupAppPreferences(options),
                             backupExtensionStores = backupExtensionStores(options),
                             backupSourcePreferences = backupSourcePreferences(options),
+                            readerBackupVersion = READER_BACKUP_VERSION,
+                            backupReaderPreferences = if (options.appSettings) {
+                                unifiedReaderBackupService.globalPreferences()
+                            } else {
+                                emptyList()
+                            },
                         ),
                     )
                     if (writer.isEmpty) {

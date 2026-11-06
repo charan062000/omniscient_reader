@@ -7,12 +7,19 @@ import eu.kanade.tachiyomi.data.backup.models.BackupExtensionStore
 import eu.kanade.tachiyomi.data.backup.models.BackupHistory
 import eu.kanade.tachiyomi.data.backup.models.BackupManga
 import eu.kanade.tachiyomi.data.backup.models.BackupPreference
+import eu.kanade.tachiyomi.data.backup.models.BackupReaderAssetChunk
+import eu.kanade.tachiyomi.data.backup.models.BackupReaderAssetRef
+import eu.kanade.tachiyomi.data.backup.models.BackupReaderCategory
+import eu.kanade.tachiyomi.data.backup.models.BackupReaderContent
+import eu.kanade.tachiyomi.data.backup.models.BackupReaderPreference
 import eu.kanade.tachiyomi.data.backup.models.BackupSource
 import eu.kanade.tachiyomi.data.backup.models.BackupSourcePreferences
 import eu.kanade.tachiyomi.data.backup.models.BackupTracking
 import eu.kanade.tachiyomi.data.backup.models.BooleanPreferenceValue
+import eu.kanade.tachiyomi.data.backup.models.ReaderBackupEntry
 import eu.kanade.tachiyomi.data.backup.models.StringPreferenceValue
 import eu.kanade.tachiyomi.data.backup.models.StringSetPreferenceValue
+import eu.kanade.tachiyomi.data.backup.models.mainAssetFile
 import io.kotest.matchers.shouldBe
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.protobuf.ProtoBuf
@@ -22,6 +29,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.parallel.Execution
 import org.junit.jupiter.api.parallel.ExecutionMode
+import java.io.File
 import java.io.IOException
 
 @Execution(ExecutionMode.CONCURRENT)
@@ -47,6 +55,77 @@ class BackupStreamTest {
 
         entries.map(::encode) shouldBe backup.backupManga.map(::encode)
         encode(metadata) shouldBe encode(backup.copy(backupManga = emptyList()))
+    }
+
+    @Test
+    fun `legacy backups default reader format version to zero`() {
+        val legacy = parser.decodeFromByteArray(Backup.serializer(), encode(backup()))
+
+        legacy.readerBackupVersion shouldBe 0
+    }
+
+    @Test
+    fun `missing reader source asset is treated as unavailable`() {
+        val record = BackupReaderContent(
+            id = "pdf:unavailable",
+            type = "PDF",
+            title = "Unavailable",
+            assets = listOf(BackupReaderAssetRef("main-asset", "main", "pdf")),
+        )
+
+        record.mainAssetFile(emptyMap()) shouldBe null
+        record.mainAssetFile(mapOf("main-asset" to File("missing-reader-backup.pdf"))) shouldBe null
+    }
+
+    @Test
+    fun `reader library records and asset chunks coexist with legacy manga entries`() {
+        val content = BackupReaderContent(
+            id = "epub:stable-id",
+            type = "EPUB",
+            title = "Novel",
+            assets = listOf(BackupReaderAssetRef("asset-1", "main", "epub")),
+        )
+        val category = BackupReaderCategory("Favorites", 0, "cover-1")
+        val chunk = BackupReaderAssetChunk("asset-1", 0, byteArrayOf(1, 2, 3), true)
+        val sink = Buffer()
+        val writer = BackupWriter(sink, parser)
+        val manga = backup().backupManga.first()
+        writer.writeEntry(manga)
+        writer.writeReaderEntry(ReaderBackupEntry.Content(content))
+        writer.writeReaderEntry(ReaderBackupEntry.Category(category))
+        writer.writeReaderEntry(ReaderBackupEntry.Asset(chunk))
+        writer.writeMetadata(
+            Backup(
+                emptyList(),
+                readerBackupVersion = 1,
+                backupReaderPreferences = listOf(BackupReaderPreference("theme", "string", "SEPIA")),
+            ),
+        )
+
+        val reader = BackupReader(Buffer().write(sink.readByteArray()), parser)
+        val restoredManga = mutableListOf<BackupManga>()
+        val readerEntries = mutableListOf<ReaderBackupEntry>()
+        while (reader.nextEntry()) {
+            if (reader.entryType ==
+                EntryType.MANGA
+            ) {
+                restoredManga += reader.readEntry()
+            } else {
+                readerEntries += reader.readReaderEntry()
+            }
+        }
+
+        restoredManga.map(::encode) shouldBe listOf(encode(manga))
+        (readerEntries[0] as ReaderBackupEntry.Content).value shouldBe content
+        (readerEntries[1] as ReaderBackupEntry.Category).value shouldBe category
+        val restoredChunk = (readerEntries[2] as ReaderBackupEntry.Asset).value
+        restoredChunk.assetId shouldBe chunk.assetId
+        restoredChunk.index shouldBe chunk.index
+        restoredChunk.last shouldBe chunk.last
+        restoredChunk.data.contentEquals(chunk.data) shouldBe true
+        val metadata = reader.readMetadata()
+        metadata.readerBackupVersion shouldBe 1
+        metadata.backupReaderPreferences shouldBe listOf(BackupReaderPreference("theme", "string", "SEPIA"))
     }
 
     @Test

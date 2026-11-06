@@ -51,6 +51,21 @@ ON CONFLICT(id) DO UPDATE SET
     author = coalesce(excluded.author, reader_content.author),
     last_opened_at = coalesce(excluded.last_opened_at, reader_content.last_opened_at);
 
+restoreContent:
+INSERT INTO reader_content(id, type, title, content_uri, cover_uri, favorite, added_at, last_opened_at, progress, progress_total, author)
+VALUES (:id, :type, :title, :contentUri, :coverUri, :favorite, :addedAt, :lastOpenedAt, :progress, :progressTotal, :author)
+ON CONFLICT(id) DO UPDATE SET
+    type = excluded.type,
+    title = excluded.title,
+    content_uri = excluded.content_uri,
+    cover_uri = excluded.cover_uri,
+    favorite = excluded.favorite,
+    added_at = excluded.added_at,
+    last_opened_at = excluded.last_opened_at,
+    progress = excluded.progress,
+    progress_total = excluded.progress_total,
+    author = excluded.author;
+
 remove:
 DELETE FROM reader_content WHERE id = :id;
 

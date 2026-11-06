@@ -103,7 +103,9 @@ fun DocsLibraryScreen(
                 }
             }
             importing = false
-            if (failures.isNotEmpty()) Toast.makeText(context, "${failures.size} PDF file(s) could not be imported", Toast.LENGTH_LONG).show()
+            if (failures.isNotEmpty()) Toast.makeText(context,
+                 "${failures.size} PDF file(s) could not be imported",
+                 Toast.LENGTH_LONG).show()
         }
     }
 
@@ -151,12 +153,16 @@ fun DocsLibraryScreen(
                     Text(categories.firstOrNull { it.id == selectedCategory }?.name ?: "All categories")
                 }
                 DropdownMenu(expanded = categoryMenu, onDismissRequest = { categoryMenu = false }) {
-                    DropdownMenuItem(text = { Text("All categories") }, onClick = { selectedCategory = null; categoryMenu = false })
+                    DropdownMenuItem(text = { Text("All categories") },
+                         onClick = { selectedCategory = null; categoryMenu = false })
                     categories.forEach { category ->
-                        DropdownMenuItem(text = { Text(category.name) }, onClick = { selectedCategory = category.id; categoryMenu = false })
+                        DropdownMenuItem(text = { Text(category.name) },
+                             onClick = { selectedCategory = category.id; categoryMenu = false })
                     }
                 }
-                TextButton(onClick = { favoritesOnly = !favoritesOnly }) { Text(if (favoritesOnly) "Favorites" else "All") }
+                TextButton(onClick = { favoritesOnly = !favoritesOnly }) {
+                    Text(if (favoritesOnly) "Favorites" else "All")
+                }
                 TextButton(onClick = { recentFirst = !recentFirst }) { Text(if (recentFirst) "Recent" else "A–Z") }
             }
             OutlinedTextField(
@@ -167,7 +173,8 @@ fun DocsLibraryScreen(
                 label = { Text("Search PDFs") },
             )
             when {
-                migrationState == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                migrationState == null -> Box(Modifier.fillMaxSize(),
+                     contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 visibleItems.isEmpty() -> EmptyState()
                 else -> LazyVerticalGrid(
                     columns = GridCells.Adaptive(140.dp),
@@ -193,7 +200,13 @@ fun DocsLibraryScreen(
         AlertDialog(
             onDismissRequest = { pendingRemove = null },
             title = { Text("Remove from library?") },
-            text = { Text("\"${item.title}\" will be removed from the library. Original PDFs outside the app are not deleted.") },
+            text = {
+                Text(
+                    "\"${item.title}\" will be removed from the library. " +
+                        "Original PDFs outside the app are not deleted.",
+                )
+            },
+
             confirmButton = {
                 TextButton(onClick = {
                     pendingRemove = null
@@ -224,7 +237,10 @@ private fun EmptyState() {
         Spacer(Modifier.height(16.dp))
         Text("Your documents live here", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
-        Text("Tap + to import PDF files. The original document stays unchanged.", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Tap + to import PDF files. The original document stays unchanged.",
+             style = MaterialTheme.typography.bodyMedium,
+             textAlign = TextAlign.Center,
+             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -233,33 +249,61 @@ private fun DocCard(item: ReaderContent, onClick: () -> Unit, onFavorite: () -> 
     var menuOpen by remember { mutableStateOf(false) }
     Column(Modifier.clickable(onClick = onClick)) {
         Box(
-            Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+
         ) {
-            item.coverUri?.let { AsyncImage(it, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop) }
-            if (item.coverUri == null) Icon(MaterialSymbols.Rounded.LocalLibrary, null, Modifier.align(Alignment.Center).size(40.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("PDF", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.TopStart).padding(8.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp))
+            item.coverUri?.let { AsyncImage(it,
+                 null,
+                 Modifier.fillMaxSize(),
+                 contentScale = androidx.compose.ui.layout.ContentScale.Crop) }
+            if (item.coverUri == null) Icon(MaterialSymbols.Rounded.LocalLibrary,
+                 null,
+                 Modifier.align(Alignment.Center).size(40.dp),
+                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("PDF",
+                 color = MaterialTheme.colorScheme.onPrimary,
+                 style = MaterialTheme.typography.labelSmall,
+                 fontWeight = FontWeight.Bold,
+
+                modifier = Modifier.align(Alignment.TopStart).padding(8.dp).background(MaterialTheme.colorScheme.primary,
+                     RoundedCornerShape(6.dp)).padding(horizontal = 6.dp,
+                     vertical = 2.dp))
             Box(Modifier.align(Alignment.TopEnd)) {
-                IconButton(onClick = { menuOpen = true }, modifier = Modifier.padding(4.dp).size(32.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape)) {
+                IconButton(onClick = { menuOpen = true },
+                     modifier = Modifier.padding(4.dp).size(32.dp).background(Color.Black.copy(alpha = 0.45f),
+                     CircleShape)) {
                     Icon(MaterialSymbols.Rounded.MoreVert, "More", tint = Color.White, modifier = Modifier.size(18.dp))
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(
                         text = { Text(if (item.favorite) "Remove favorite" else "Add favorite") },
                         onClick = { menuOpen = false; onFavorite() },
-                        leadingIcon = { Icon(if (item.favorite) MaterialSymbols.RoundedFilled.Favorite else MaterialSymbols.Rounded.Favorite, null) },
+                        leadingIcon = { Icon(if (item.favorite) MaterialSymbols.RoundedFilled.Favorite else MaterialSymbols.Rounded.Favorite,
+                             null) },
+
                     )
                     DropdownMenuItem(text = { Text("Remove from library") }, onClick = { menuOpen = false; onRemove() })
                 }
             }
             if (item.progress > 0 && item.progressTotal > 0) {
-                LinearProgressIndicator(progress = { ((item.progress + 1).toFloat() / item.progressTotal).coerceIn(0f, 1f) }, modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth())
+                LinearProgressIndicator(progress = { ((item.progress + 1).toFloat() / item.progressTotal).coerceIn(0f,
+                     1f) },
+                     modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth())
             }
         }
         Spacer(Modifier.height(8.dp))
-        Text(item.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(item.title,
+             style = MaterialTheme.typography.bodyMedium,
+             fontWeight = FontWeight.SemiBold,
+             maxLines = 2,
+             overflow = TextOverflow.Ellipsis)
         Text(
             if (item.progress > 0 && item.progressTotal > 0) "Page ${item.progress + 1} of ${item.progressTotal}" else "${item.progressTotal} pages",
+
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

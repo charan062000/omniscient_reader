@@ -91,7 +91,9 @@ fun LocalImageViewer(
                             ?: error("Export destination cannot be written")
                     } ?: error("This image is no longer available")
                 }
-            }.onFailure { android.widget.Toast.makeText(context, it.message ?: "Image export failed", android.widget.Toast.LENGTH_LONG).show() }
+            }.onFailure { android.widget.Toast.makeText(context,
+                 it.message ?: "Image export failed",
+                 android.widget.Toast.LENGTH_LONG).show() }
         }
     }
 
@@ -116,9 +118,14 @@ fun LocalImageViewer(
         if (window != null) {
             val controller = WindowCompat.getInsetsController(window, localView)
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            if (isFullscreen) controller.hide(WindowInsetsCompat.Type.systemBars()) else controller.show(WindowInsetsCompat.Type.systemBars())
+            if (isFullscreen) {
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+            } else {
+                controller.show(WindowInsetsCompat.Type.systemBars())
+            }
         }
-        onDispose { if (window != null) WindowCompat.getInsetsController(window, localView).show(WindowInsetsCompat.Type.systemBars()) }
+        onDispose { if (window != null) WindowCompat.getInsetsController(window,
+             localView).show(WindowInsetsCompat.Type.systemBars()) }
     }
 
     Dialog(
@@ -127,12 +134,24 @@ fun LocalImageViewer(
     ) {
         Column(Modifier.fillMaxSize().background(surfaceColors.background)) {
             Row(
-                Modifier.fillMaxWidth().background(surfaceColors.background.copy(alpha = .9f)).padding(horizontal = 4.dp, vertical = 2.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .background(surfaceColors.background.copy(alpha = .9f))
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onClose) { Icon(MaterialSymbols.AutoMirroredRounded.ArrowBack, "Close image viewer", tint = surfaceColors.foreground) }
-                Text(item.title, Modifier.weight(1f), color = surfaceColors.foreground, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
-                TextButton(onClick = { isFullscreen = !isFullscreen }) { Text(if (isFullscreen) "Exit fullscreen" else "Fullscreen", color = surfaceColors.foreground) }
+                IconButton(onClick = onClose) { Icon(MaterialSymbols.AutoMirroredRounded.ArrowBack,
+                     "Close image viewer",
+                     tint = surfaceColors.foreground) }
+                Text(item.title,
+                     Modifier.weight(1f),
+                     color = surfaceColors.foreground,
+                     maxLines = 1,
+                     overflow = TextOverflow.Ellipsis,
+                     style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { isFullscreen = !isFullscreen }) { Text(if (isFullscreen) "Exit fullscreen" else "Fullscreen",
+                     color = surfaceColors.foreground) }
             }
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 AndroidView(
@@ -166,28 +185,41 @@ fun LocalImageViewer(
                 if (brightness > 0) androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
                     drawRect(Color.Black.copy(alpha = brightness.coerceIn(0, 50) / 100f))
                 }
-                if (loading && !loadError) androidx.compose.material3.CircularProgressIndicator(Modifier.align(Alignment.Center), color = surfaceColors.foreground)
-                if (loadError) Text("This image is unavailable or cannot be decoded.", Modifier.align(Alignment.Center).padding(24.dp), color = surfaceColors.foreground)
+                if (loading && !loadError) androidx.compose.material3.CircularProgressIndicator(Modifier.align(Alignment.Center),
+                     color = surfaceColors.foreground)
+                if (loadError) Text("This image is unavailable or cannot be decoded.",
+                     Modifier.align(Alignment.Center).padding(24.dp),
+                     color = surfaceColors.foreground)
                 Row(Modifier.align(Alignment.CenterStart)) {
                     IconButton(onClick = {
                         index = (index - 1).coerceAtLeast(0)
                         onIndexChanged(index)
-                    }, enabled = index > 0) { Text("‹", color = surfaceColors.foreground, style = MaterialTheme.typography.headlineMedium) }
+                    },
+                         enabled = index > 0) { Text("‹",
+                         color = surfaceColors.foreground,
+                         style = MaterialTheme.typography.headlineMedium) }
                 }
                 Row(Modifier.align(Alignment.CenterEnd)) {
                     IconButton(onClick = {
                         index = (index + 1).coerceAtMost(items.lastIndex)
                         onIndexChanged(index)
-                    }, enabled = index < items.lastIndex) { Text("›", color = surfaceColors.foreground, style = MaterialTheme.typography.headlineMedium) }
+                    },
+                         enabled = index < items.lastIndex) { Text("›",
+                         color = surfaceColors.foreground,
+                         style = MaterialTheme.typography.headlineMedium) }
                 }
             }
             Row(
-                Modifier.fillMaxWidth().background(surfaceColors.background.copy(alpha = .9f)).padding(horizontal = 8.dp, vertical = 4.dp),
+                Modifier.fillMaxWidth().background(surfaceColors.background.copy(alpha = .9f)).padding(horizontal = 8.dp,
+                     vertical = 4.dp),
+
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = { fitMode = SubsamplingScaleImageView.SCALE_TYPE_CENTER_INSIDE; imageFitPreference.set("FIT"); imageView?.setMinimumScaleType(fitMode) }) { Text("Fit", color = surfaceColors.foreground) }
-                TextButton(onClick = { fitMode = SubsamplingScaleImageView.SCALE_TYPE_CENTER_CROP; imageFitPreference.set("FILL"); imageView?.setMinimumScaleType(fitMode) }) { Text("Fill", color = surfaceColors.foreground) }
+                TextButton(onClick = { fitMode = SubsamplingScaleImageView.SCALE_TYPE_CENTER_INSIDE; imageFitPreference.set("FIT"); imageView?.setMinimumScaleType(fitMode) }) { Text("Fit",
+                     color = surfaceColors.foreground) }
+                TextButton(onClick = { fitMode = SubsamplingScaleImageView.SCALE_TYPE_CENTER_CROP; imageFitPreference.set("FILL"); imageView?.setMinimumScaleType(fitMode) }) { Text("Fill",
+                     color = surfaceColors.foreground) }
                 IconButton(onClick = {
                     imageFitPreference.set("ORIGINAL")
                     imageView?.let { if (it.isReady) it.setScaleAndCenter(1f, it.center) }
@@ -204,7 +236,9 @@ fun LocalImageViewer(
                     val extension = Uri.parse(item.uri).lastPathSegment?.substringAfterLast('.', "jpg") ?: "jpg"
                     exportPicker.launch("${item.title}.$extension")
                 }) { Text("Export", color = surfaceColors.foreground) }
-                Text("${index + 1} / ${items.size}", color = surfaceColors.foreground, style = MaterialTheme.typography.labelLarge)
+                Text("${index + 1} / ${items.size}",
+                     color = surfaceColors.foreground,
+                     style = MaterialTheme.typography.labelLarge)
             }
         }
     }

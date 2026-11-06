@@ -40,13 +40,24 @@ class EpubParser {
             EpubChapter(item.path, label.ifBlank { "Chapter ${index + 1}" }, index)
         }
         val metadata = opf.getAllElements().firstOrNull { it.tagName().substringAfter(':').equals("metadata", true) }
-        val title = metadata?.let { childText(it, "title") }?.ifBlank { file.nameWithoutExtension } ?: file.nameWithoutExtension
+        val title = metadata?.let {
+            childText(
+                it,
+                "title",
+            )
+        }?.ifBlank { file.nameWithoutExtension } ?: file.nameWithoutExtension
         val creators = metadata?.getAllElements()?.filter { it.tagName().substringAfter(':').equals("creator", true) }
             ?.map { it.text().trim() }?.filter(String::isNotBlank).orEmpty()
         val coverId = opf.selectFirst("meta[name=cover]")?.attr("content")
         val cover = manifest[coverId]?.path ?: manifest.values.firstOrNull { "cover-image" in it.properties }?.path
             ?: manifest.values.firstOrNull { it.id.contains("cover", true) && it.mediaType.startsWith("image/") }?.path
-        val direction = if (opf.selectFirst("spine")?.attr("page-progression-direction") == "rtl") ReadingDirection.RTL else ReadingDirection.LTR
+        val direction = if (opf.selectFirst("spine")?.attr("page-progression-direction") ==
+            "rtl"
+        ) {
+            ReadingDirection.RTL
+        } else {
+            ReadingDirection.LTR
+        }
         EpubBook(title, creators, metadata?.let { childText(it, "language") }, cover, direction, chapters)
     }
 
@@ -61,7 +72,9 @@ class EpubParser {
         return book.chapters.mapNotNull { chapter ->
             val plain = Jsoup.parse(readChapter(file, chapter)).text()
             val index = plain.indexOf(needle, ignoreCase = true)
-            if (index < 0) null else {
+            if (index < 0) {
+                null
+            } else {
                 val start = (index - 70).coerceAtLeast(0)
                 val end = (index + needle.length + 100).coerceAtMost(plain.length)
                 EpubSearchResult(chapter.index, chapter.title, plain.substring(start, end).trim())
@@ -91,7 +104,11 @@ class EpubParser {
     }
 
     private fun chapterTitle(zip: ZipFile, entry: java.util.zip.ZipEntry?, path: String): String {
-        if (entry == null || entry.size > MAX_CHAPTER_BYTES) return path.substringAfterLast('/').substringBeforeLast('.')
+        if (entry == null ||
+            entry.size > MAX_CHAPTER_BYTES
+        ) {
+            return path.substringAfterLast('/').substringBeforeLast('.')
+        }
         return runCatching {
             Jsoup.parse(readText(zip, entry, MAX_CHAPTER_BYTES)).title().trim()
         }.getOrDefault(path.substringAfterLast('/').substringBeforeLast('.'))
@@ -102,7 +119,15 @@ class EpubParser {
             ?.text()?.trim()?.takeIf(String::isNotBlank)
 
     private fun resolvePath(base: String, href: String): String? {
-        val decoded = runCatching { java.net.URLDecoder.decode(href.replace("+", "%2B"), "UTF-8") }.getOrNull() ?: return null
+        val decoded = runCatching {
+            java.net.URLDecoder.decode(
+                href.replace(
+                    "+",
+                    "%2B",
+                ),
+                "UTF-8",
+            )
+        }.getOrNull() ?: return null
         if (decoded.startsWith('/') || decoded.contains(':')) return null
         return normalizePath(listOf(base, decoded).filter(String::isNotEmpty).joinToString("/"))
             .takeIf { it.isNotBlank() && !it.startsWith("../") }
@@ -137,7 +162,12 @@ class EpubParser {
         return output.toString(Charsets.UTF_8.name())
     }
 
-    private data class ManifestItem(val id: String, val path: String, val mediaType: String, val properties: List<String>)
+    private data class ManifestItem(
+        val id: String,
+        val path: String,
+        val mediaType: String,
+        val properties: List<String>,
+    )
 
     private companion object {
         const val MAX_ENTRIES = 10_000

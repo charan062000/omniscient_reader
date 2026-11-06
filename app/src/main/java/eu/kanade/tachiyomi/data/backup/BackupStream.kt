@@ -2,6 +2,10 @@ package eu.kanade.tachiyomi.data.backup
 
 import eu.kanade.tachiyomi.data.backup.models.Backup
 import eu.kanade.tachiyomi.data.backup.models.BackupManga
+import eu.kanade.tachiyomi.data.backup.models.BackupReaderAssetChunk
+import eu.kanade.tachiyomi.data.backup.models.BackupReaderCategory
+import eu.kanade.tachiyomi.data.backup.models.BackupReaderContent
+import eu.kanade.tachiyomi.data.backup.models.ReaderBackupEntry
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.protobuf.ProtoBuf
@@ -21,11 +25,27 @@ class BackupWriter(
         private set
 
     fun writeEntry(entry: BackupManga) {
-        val bytes = parser.encodeToByteArray(BackupManga.serializer(), entry)
-        sink.writeVarint(ENTRY_TAG)
-        sink.writeVarint(bytes.size.toLong())
-        sink.write(bytes)
-        isEmpty = false
+        writeEncoded(ENTRY_TAG, BackupManga.serializer(), entry)
+    }
+
+    fun writeReaderEntry(entry: ReaderBackupEntry) {
+        when (entry) {
+            is ReaderBackupEntry.Content -> writeEncoded(
+                READER_CONTENT_TAG,
+                BackupReaderContent.serializer(),
+                entry.value,
+            )
+            is ReaderBackupEntry.Category -> writeEncoded(
+                READER_CATEGORY_TAG,
+                BackupReaderCategory.serializer(),
+                entry.value,
+            )
+            is ReaderBackupEntry.Asset -> writeEncoded(
+                READER_ASSET_TAG,
+                BackupReaderAssetChunk.serializer(),
+                entry.value,
+            )
+        }
     }
 
     /**
@@ -35,6 +55,14 @@ class BackupWriter(
         val bytes = parser.encodeToByteArray(Backup.serializer(), metadata)
         sink.write(bytes)
         if (bytes.isNotEmpty()) isEmpty = false
+    }
+
+    private fun <T> writeEncoded(tag: Long, serializer: kotlinx.serialization.SerializationStrategy<T>, value: T) {
+        val bytes = parser.encodeToByteArray(serializer, value)
+        sink.writeVarint(tag)
+        sink.writeVarint(bytes.size.toLong())
+        sink.write(bytes)
+        isEmpty = false
     }
 }
 
@@ -50,6 +78,8 @@ class BackupReader(
 ) {
     private val metadata = Buffer()
     private var entryLength = NO_ENTRY
+    var entryType: EntryType? = null
+        private set
 
     /**
      * Moves to the next entry, which [readEntry] or [skipEntry] then consumes.
@@ -64,8 +94,16 @@ class BackupReader(
             val wireType = (tag and 0x7).toInt()
             if (fieldNumber == 0L) throw IOException("Invalid field number 0")
 
-            if (tag == ENTRY_TAG) {
+            val type = when (tag) {
+                ENTRY_TAG -> EntryType.MANGA
+                READER_CONTENT_TAG -> EntryType.READER_CONTENT
+                READER_CATEGORY_TAG -> EntryType.READER_CATEGORY
+                READER_ASSET_TAG -> EntryType.READER_ASSET
+                else -> null
+            }
+            if (type != null) {
                 entryLength = source.readLength()
+                entryType = type
                 return true
             }
 
@@ -85,17 +123,29 @@ class BackupReader(
         return false
     }
 
-    fun readEntry(): BackupManga = readEntry(BackupManga.serializer())
+    fun readEntry(): BackupManga {
+        check(entryType == EntryType.MANGA)
+        return readEntry(BackupManga.serializer())
+    }
+
+    fun readReaderEntry(): ReaderBackupEntry = when (entryType) {
+        EntryType.READER_CONTENT -> ReaderBackupEntry.Content(readEntry(BackupReaderContent.serializer()))
+        EntryType.READER_CATEGORY -> ReaderBackupEntry.Category(readEntry(BackupReaderCategory.serializer()))
+        EntryType.READER_ASSET -> ReaderBackupEntry.Asset(readEntry(BackupReaderAssetChunk.serializer()))
+        else -> error("Current backup entry is not a reader entry")
+    }
 
     /**
      * Decodes the entry as [deserializer], which can declare only the fields it needs so the rest are skipped.
      */
     fun <T> readEntry(deserializer: DeserializationStrategy<T>): T {
+        entryType = null
         val bytes = source.readByteArray(takeEntryLength())
         return decode(deserializer, bytes)
     }
 
     fun skipEntry() {
+        entryType = null
         source.skip(takeEntryLength())
     }
 
@@ -154,5 +204,10 @@ private const val WIRE_TYPE_FIXED32 = 5
 
 // Backup.backupManga is field 1, and each entry is length-delimited
 private const val ENTRY_TAG = 1L shl 3 or WIRE_TYPE_LENGTH_DELIMITED.toLong()
+private const val READER_CONTENT_TAG = 109L shl 3 or WIRE_TYPE_LENGTH_DELIMITED.toLong()
+private const val READER_CATEGORY_TAG = 110L shl 3 or WIRE_TYPE_LENGTH_DELIMITED.toLong()
+private const val READER_ASSET_TAG = 111L shl 3 or WIRE_TYPE_LENGTH_DELIMITED.toLong()
 
 private const val NO_ENTRY = -1L
+
+enum class EntryType { MANGA, READER_CONTENT, READER_CATEGORY, READER_ASSET }
