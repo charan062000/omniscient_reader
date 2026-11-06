@@ -14,6 +14,7 @@ import cafe.adriel.voyager.navigator.currentOrThrow
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.domain.ui.model.TabletUiMode
 import eu.kanade.domain.ui.model.ThemeMode
+import eu.kanade.domain.ui.model.ReaderSurfacePreset
 import eu.kanade.domain.ui.model.TimeFormat
 import eu.kanade.domain.ui.model.setAppCompatDelegateThemeMode
 import eu.kanade.presentation.more.settings.Preference
@@ -44,9 +45,50 @@ object SettingsAppearanceScreen : SearchableSettings {
 
         return listOf(
             getThemeGroup(uiPreferences = uiPreferences),
+            getReaderGroup(uiPreferences = uiPreferences),
             getDisplayGroup(uiPreferences = uiPreferences),
         )
     }
+
+    @Composable
+    private fun getReaderGroup(uiPreferences: UiPreferences): Preference.PreferenceGroup = Preference.PreferenceGroup(
+        title = "Reader appearance",
+        preferenceItems = listOf(
+            Preference.PreferenceItem.ListPreference(
+                preference = uiPreferences.readerAppearance.surfacePreset,
+                entries = ReaderSurfacePreset.entries.associateWith {
+                    when (it) {
+                        ReaderSurfacePreset.APP -> "Follow Mihon theme"
+                        ReaderSurfacePreset.LIGHT -> "Light page"
+                        ReaderSurfacePreset.SEPIA -> "Sepia page"
+                        ReaderSurfacePreset.DARK -> "Dark page"
+                        ReaderSurfacePreset.CUSTOM -> "Custom colors"
+                    }
+                },
+                title = "Default reading surface",
+            ),
+            Preference.PreferenceItem.ListPreference(
+                preference = uiPreferences.readerAppearance.imageFit,
+                entries = mapOf("FIT" to "Fit", "FILL" to "Fill", "ORIGINAL" to "Original size"),
+                title = "Default image fit",
+            ),
+            Preference.PreferenceItem.SwitchPreference(
+                preference = uiPreferences.readerAppearance.gifAutoplay,
+                title = "Autoplay GIFs",
+            ),
+            Preference.PreferenceItem.ListPreference(
+                preference = uiPreferences.readerAppearance.videoSpeed,
+                entries = listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f).associateWith { "${it}×" },
+                title = "Default video speed",
+            ),
+            Preference.PreferenceItem.SliderPreference(
+                preference = uiPreferences.readerAppearance.readerBrightness,
+                title = "Reader dim level",
+                valueRange = 0..50,
+                valueText = { "$it%" },
+            ),
+        ),
+    )
 
     @Composable
     private fun getThemeGroup(

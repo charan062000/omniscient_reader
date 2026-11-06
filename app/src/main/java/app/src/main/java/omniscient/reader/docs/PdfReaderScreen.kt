@@ -88,6 +88,8 @@ import mihon.icons.materialsymbols.rounded.Image
 import mihon.icons.materialsymbols.rounded.Search
 import mihon.icons.materialsymbols.rounded.Settings
 import mihon.app.di.appGraph
+import eu.kanade.domain.ui.model.ReaderSurfacePreset
+import eu.kanade.presentation.theme.readerSurfaceColors
 import kotlin.math.max
 import kotlin.math.roundToInt
 import java.util.UUID
@@ -99,7 +101,6 @@ import tachiyomi.domain.library.content.repository.ReaderLibraryRepository
 private const val RENDER_SCALE = 1.25f
 private const val PREFETCH_PAGES = 3
 private const val PROGRESS_SAVE_DELAY_MS = 600L
-private val BarColor = Color.Black.copy(alpha = 0.72f)
 
 /**
  * Continuous PDF reader: pages are stacked with no gaps, fit to the screen width,
@@ -115,6 +116,12 @@ fun PdfReaderScreen(
     val context = LocalContext.current
     val view = LocalView.current
     val scope = rememberCoroutineScope()
+    val appearance = remember { context.appGraph.uiPreferences.readerAppearance }
+    val surfacePreset by appearance.surfacePreset.changes().collectAsState(initial = appearance.surfacePreset.get())
+    val customBackground by appearance.customBackground.changes().collectAsState(initial = appearance.customBackground.get())
+    val customForeground by appearance.customForeground.changes().collectAsState(initial = appearance.customForeground.get())
+    val brightness by appearance.readerBrightness.changes().collectAsState(initial = appearance.readerBrightness.get())
+    val pageColors = readerSurfaceColors(surfacePreset, MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.onBackground, customBackground, customForeground)
 
     var doc by remember { mutableStateOf<PdfDoc?>(null) }
     var ratios by remember { mutableStateOf<FloatArray?>(null) }
@@ -193,7 +200,7 @@ fun PdfReaderScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(pageColors.background),
     ) {
         val readyDoc = doc
         val readyRatios = ratios
@@ -206,7 +213,7 @@ fun PdfReaderScreen(
                         .padding(32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text(text = message, color = Color.White)
+                    Text(text = message, color = pageColors.foreground)
                     Button(onClick = onClose, modifier = Modifier.padding(top = 16.dp)) {
                         Text("Back")
                     }
@@ -228,6 +235,9 @@ fun PdfReaderScreen(
                         scope.launch { repository.updateProgress(item.id, page.toLong(), item.progressTotal, System.currentTimeMillis()) }
                     },
                     margin = margin,
+                    barColor = pageColors.background.copy(alpha = 0.9f),
+                    barContentColor = pageColors.foreground,
+                    brightness = brightness,
                     annotations = annotations,
                     searchResults = searchResults,
                     requestedPage = requestedPage,
@@ -301,7 +311,13 @@ fun PdfReaderScreen(
         }) { Text("Save") } },
         dismissButton = { TextButton(onClick = { noteOpen = false }) { Text("Cancel") } },
     )
-    if (settingsOpen) AlertDialog(onDismissRequest = { settingsOpen = false }, title = { Text("PDF reader settings") }, text = {
+    if (settingsOpen) AlertDialog(
+        onDismissRequest = { settingsOpen = false },
+        containerColor = pageColors.background,
+        titleContentColor = pageColors.foreground,
+        textContentColor = pageColors.foreground,
+        title = { Text("PDF reader settings") },
+        text = {
         Column {
             Text("Page margin: ${margin.roundToInt()} dp")
             Slider(margin, { margin = it }, valueRange = 0f..32f)
@@ -309,11 +325,20 @@ fun PdfReaderScreen(
                 TextButton(onClick = { pageMode = !pageMode }) { Text(if (pageMode) "Page-by-page" else "Continuous scroll") }
                 TextButton(onClick = { rtl = !rtl }) { Text(if (rtl) "Right to left" else "Left to right") }
             }
+            Row {
+                ReaderSurfacePreset.entries.forEach { preset ->
+                    TextButton(onClick = { appearance.surfacePreset.set(preset) }) { Text(preset.name) }
+                }
+            }
+            Text("Dim level: $brightness%")
+            Slider(brightness.toFloat(), { appearance.readerBrightness.set(it.toInt()) }, valueRange = 0f..50f)
         }
-    }, confirmButton = { TextButton(onClick = {
-        preferences.edit().putFloat("margin", margin).putBoolean("page_mode", pageMode).putBoolean("rtl", rtl).apply()
-        settingsOpen = false
-    }) { Text("Done") } })
+        },
+        confirmButton = { TextButton(onClick = {
+            preferences.edit().putFloat("margin", margin).putBoolean("page_mode", pageMode).putBoolean("rtl", rtl).apply()
+            settingsOpen = false
+        }) { Text("Done") } },
+    )
 }
 
 @Composable
@@ -326,6 +351,9 @@ private fun PdfPages(
     onToggleControls: () -> Unit,
     onProgress: (Int) -> Unit,
     margin: Float,
+    barColor: Color,
+    barContentColor: Color,
+    brightness: Int,
     annotations: List<PdfAnnotation>,
     searchResults: List<PdfTextSearchResult>,
     requestedPage: Int?,
@@ -421,6 +449,10 @@ private fun PdfPages(
             }
         }
 
+        if (brightness > 0) Canvas(Modifier.fillMaxSize()) {
+            drawRect(Color.Black.copy(alpha = brightness.coerceIn(0, 50) / 100f))
+        }
+
         AnimatedVisibility(
             visible = controlsVisible,
             modifier = Modifier.align(Alignment.TopCenter),
@@ -430,7 +462,7 @@ private fun PdfPages(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(BarColor)
+                    .background(barColor)
                     .statusBarsPadding()
                     .padding(horizontal = 4.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -439,23 +471,23 @@ private fun PdfPages(
                     Icon(
                         imageVector = MaterialSymbols.AutoMirroredRounded.ArrowBack,
                         contentDescription = "Back",
-                        tint = Color.White,
+                        tint = barContentColor,
                     )
                 }
                 Text(
                     text = title,
-                    color = Color.White,
+                    color = barContentColor,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = onSearch) { Icon(MaterialSymbols.Rounded.Search, "Search PDF", tint = Color.White) }
-                IconButton(onClick = { onBookmark(if (pageMode) currentPagedPage else currentPage) }) { Icon(MaterialSymbols.Rounded.Bookmark, "Bookmark page", tint = Color.White) }
-                IconButton(onClick = onBookmarks) { Icon(MaterialSymbols.Rounded.Bookmark, "Show bookmarks", tint = Color.White) }
-                IconButton(onClick = onNote) { Icon(MaterialSymbols.Rounded.EditNote, "Add note", tint = Color.White) }
-                IconButton(onClick = onSettings) { Icon(MaterialSymbols.Rounded.Settings, "Reader settings", tint = Color.White) }
-                IconButton(onClick = onAddImage) { Icon(MaterialSymbols.Rounded.Image, "Add image annotation", tint = Color.White) }
+                IconButton(onClick = onSearch) { Icon(MaterialSymbols.Rounded.Search, "Search PDF", tint = barContentColor) }
+                IconButton(onClick = { onBookmark(if (pageMode) currentPagedPage else currentPage) }) { Icon(MaterialSymbols.Rounded.Bookmark, "Bookmark page", tint = barContentColor) }
+                IconButton(onClick = onBookmarks) { Icon(MaterialSymbols.Rounded.Bookmark, "Show bookmarks", tint = barContentColor) }
+                IconButton(onClick = onNote) { Icon(MaterialSymbols.Rounded.EditNote, "Add note", tint = barContentColor) }
+                IconButton(onClick = onSettings) { Icon(MaterialSymbols.Rounded.Settings, "Reader settings", tint = barContentColor) }
+                IconButton(onClick = onAddImage) { Icon(MaterialSymbols.Rounded.Image, "Add image annotation", tint = barContentColor) }
             }
         }
 
@@ -468,14 +500,14 @@ private fun PdfPages(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(BarColor)
+                    .background(barColor)
                     .navigationBarsPadding()
                     .padding(horizontal = 20.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
                     text = "${(if (pageMode) currentPagedPage else currentPage) + 1} / $count",
-                    color = Color.White,
+                    color = barContentColor,
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 if (count > 1) {

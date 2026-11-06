@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,6 +32,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import eu.kanade.presentation.theme.rememberReaderSurfaceColors
+import mihon.app.di.appGraph
 import coil3.asDrawable
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.delay
@@ -46,8 +49,12 @@ fun LocalGifViewer(
     onIndexChanged: (Int) -> Unit,
 ) {
     val context = LocalContext.current
+    val surfaceColors = rememberReaderSurfaceColors()
+    val autoplayPreference = remember { context.appGraph.uiPreferences.readerAppearance.gifAutoplay }
+    val brightnessPreference = remember { context.appGraph.uiPreferences.readerAppearance.readerBrightness }
+    val brightness by brightnessPreference.changes().collectAsState(initial = brightnessPreference.get())
     var index by remember(items) { mutableIntStateOf(initialIndex.coerceIn(items.indices)) }
-    var isPlaying by remember(items) { mutableStateOf(true) }
+    var isPlaying by remember(items) { mutableStateOf(autoplayPreference.get()) }
     var isFullscreen by remember(items) { mutableStateOf(true) }
     var loading by remember(items) { mutableStateOf(true) }
     var error by remember(items) { mutableStateOf(false) }
@@ -66,14 +73,14 @@ fun LocalGifViewer(
     DisposableEffect(animation) { onDispose { animation?.stop() } }
 
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = !isFullscreen)) {
-        Column(Modifier.fillMaxSize().background(Color.Black)) {
+        Column(Modifier.fillMaxSize().background(surfaceColors.background)) {
             Row(
-                Modifier.fillMaxWidth().background(Color.Black.copy(alpha = .78f)).padding(horizontal = 4.dp, vertical = 2.dp),
+                Modifier.fillMaxWidth().background(surfaceColors.background.copy(alpha = .9f)).padding(horizontal = 4.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onClose) { Icon(MaterialSymbols.AutoMirroredRounded.ArrowBack, "Close GIF viewer", tint = Color.White) }
-                Text(item.title, Modifier.weight(1f), color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
-                TextButton(onClick = { isFullscreen = !isFullscreen }) { Text(if (isFullscreen) "Exit fullscreen" else "Fullscreen", color = Color.White) }
+                IconButton(onClick = onClose) { Icon(MaterialSymbols.AutoMirroredRounded.ArrowBack, "Close GIF viewer", tint = surfaceColors.foreground) }
+                Text(item.title, Modifier.weight(1f), color = surfaceColors.foreground, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { isFullscreen = !isFullscreen }) { Text(if (isFullscreen) "Exit fullscreen" else "Fullscreen", color = surfaceColors.foreground) }
             }
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 AsyncImage(
@@ -90,24 +97,27 @@ fun LocalGifViewer(
                     },
                     onError = { loading = false; error = true },
                 )
-                if (loading) androidx.compose.material3.CircularProgressIndicator(color = Color.White)
-                if (error) Text("This GIF is unavailable or could not be decoded.", color = Color.White, modifier = Modifier.padding(24.dp))
+                if (brightness > 0) androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                    drawRect(Color.Black.copy(alpha = brightness.coerceIn(0, 50) / 100f))
+                }
+                if (loading) androidx.compose.material3.CircularProgressIndicator(color = surfaceColors.foreground)
+                if (error) Text("This GIF is unavailable or could not be decoded.", color = surfaceColors.foreground, modifier = Modifier.padding(24.dp))
                 IconButton(
                     onClick = { index = (index - 1).coerceAtLeast(0); onIndexChanged(index) },
                     modifier = Modifier.align(Alignment.CenterStart), enabled = index > 0,
-                ) { Text("‹", color = Color.White, style = MaterialTheme.typography.headlineMedium) }
+                ) { Text("‹", color = surfaceColors.foreground, style = MaterialTheme.typography.headlineMedium) }
                 IconButton(
                     onClick = { index = (index + 1).coerceAtMost(items.lastIndex); onIndexChanged(index) },
                     modifier = Modifier.align(Alignment.CenterEnd), enabled = index < items.lastIndex,
-                ) { Text("›", color = Color.White, style = MaterialTheme.typography.headlineMedium) }
+                ) { Text("›", color = surfaceColors.foreground, style = MaterialTheme.typography.headlineMedium) }
             }
             Row(
-                Modifier.fillMaxWidth().background(Color.Black.copy(alpha = .78f)).padding(horizontal = 12.dp, vertical = 6.dp),
+                Modifier.fillMaxWidth().background(surfaceColors.background.copy(alpha = .9f)).padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = { isPlaying = !isPlaying }) { Text(if (isPlaying) "Pause" else "Play", color = Color.White) }
-                Text("${index + 1} / ${items.size}", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                TextButton(onClick = { isPlaying = !isPlaying; autoplayPreference.set(isPlaying) }) { Text(if (isPlaying) "Pause" else "Play", color = surfaceColors.foreground) }
+                Text("${index + 1} / ${items.size}", color = surfaceColors.foreground, style = MaterialTheme.typography.labelLarge)
             }
         }
     }

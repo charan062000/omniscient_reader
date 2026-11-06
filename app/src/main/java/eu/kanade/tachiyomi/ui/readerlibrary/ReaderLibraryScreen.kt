@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -59,10 +60,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.onEach
 import mihon.app.di.appGraph
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.rounded.Favorite
 import mihon.icons.materialsymbols.rounded.LocalLibrary
+import mihon.icons.materialsymbols.automirroredrounded.ArrowBack
 import mihon.icons.materialsymbols.rounded.Delete
 import mihon.icons.materialsymbols.rounded.Download
 import mihon.icons.materialsymbols.roundedfilled.Favorite
@@ -96,7 +99,9 @@ private fun ReaderLibraryContent() {
     val repository = context.appGraph.readerLibraryRepository
     val scope = rememberCoroutineScope()
     var pdfMigrationError by remember { mutableStateOf<String?>(null) }
-    val content by repository.observeAll().collectAsState(initial = emptyList())
+    var libraryLoaded by remember { mutableStateOf(false) }
+    val libraryFlow = remember(repository) { repository.observeAll().onEach { libraryLoaded = true } }
+    val content by libraryFlow.collectAsState(initial = emptyList())
     val collections by repository.observeCollections().collectAsState(initial = emptyList())
     var section by remember { mutableStateOf(ReaderSection.NOVELS) }
     var query by remember { mutableStateOf("") }
@@ -140,9 +145,12 @@ private fun ReaderLibraryContent() {
     }
     val imageFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) scope.launch {
-            val result = withContext(Dispatchers.IO) { LocalMediaService(context, repository).scanImageFolder(uri) }
-            if (result.errors.isNotEmpty()) scanError = "Imported ${result.imported} of ${result.scanned} scanned files.\n" + result.errors.take(20).joinToString("\n")
-            else android.widget.Toast.makeText(context, "Imported ${result.imported} media files", android.widget.Toast.LENGTH_SHORT).show()
+            runCatching { withContext(Dispatchers.IO) { LocalMediaService(context, repository).scanImageFolder(uri) } }
+                .onSuccess { result ->
+                    if (result.errors.isNotEmpty()) scanError = "Imported ${result.imported} of ${result.scanned} scanned files.\n" + result.errors.take(20).joinToString("\n")
+                    else android.widget.Toast.makeText(context, "Imported ${result.imported} media files", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                .onFailure { scanError = it.message ?: "The selected folder could not be scanned." }
         }
     }
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -179,7 +187,7 @@ private fun ReaderLibraryContent() {
             .filter { section != ReaderSection.LOCAL || localTypeFilter == null || it.type == localTypeFilter }
             .filter { selectedCollectionId == null || it.id in contentInCollection }
             .filter { !favoritesOnly || it.favorite }
-            .filter { query.isBlank() || it.title.contains(query, ignoreCase = true) }
+            .filter { query.isBlank() || it.title.contains(query, ignoreCase = true) || it.author?.contains(query, ignoreCase = true) == true }
             .sortedWith(
                 compareByDescending<ReaderContent> { it.favorite }
                     .thenByDescending { if (recentFirst) it.lastOpenedAt ?: it.addedAt else 0L }
@@ -190,7 +198,14 @@ private fun ReaderLibraryContent() {
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Omniscient Reader") })
+            TopAppBar(
+                title = { Text("Books & Media") },
+                navigationIcon = {
+                    IconButton(onClick = { navigator.pop() }) {
+                        Icon(MaterialSymbols.AutoMirroredRounded.ArrowBack, contentDescription = "Back")
+                    }
+                },
+            )
         },
     ) { padding ->
         Column(
@@ -270,9 +285,6 @@ private fun ReaderLibraryContent() {
                     label = if (recentFirst) "Sort: recent" else "Sort: A-Z",
                     onClick = { recentFirst = !recentFirst },
                 )
-                if (section == ReaderSection.PDF) {
-                    TextButtonCompat(label = "Open Documents", onClick = { context.startActivity(DocsActivity.newIntent(context)) })
-                }
                 if (section == ReaderSection.LOCAL) TextButtonCompat(label = if (localGridView) "View: grid" else "View: list", onClick = { localGridView = !localGridView })
             }
 
@@ -290,7 +302,9 @@ private fun ReaderLibraryContent() {
                 }
             }
 
-            if (visibleItems.isEmpty()) {
+            if (visibleItems.isEmpty() && !libraryLoaded) {
+                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) { androidx.compose.material3.CircularProgressIndicator() }
+            } else if (visibleItems.isEmpty()) {
                 Text(
                     text = when (section) {
                         ReaderSection.NOVELS -> "Imported EPUB and text books will appear here."

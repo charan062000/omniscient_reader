@@ -3,7 +3,6 @@ package eu.kanade.presentation.more
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.more.settings.widget.SwitchPreferenceWidget
@@ -21,8 +20,6 @@ import mihon.icons.materialsymbols.rounded.QueryStats
 import mihon.icons.materialsymbols.rounded.Settings
 import mihon.icons.materialsymbols.rounded.Storage
 import mihon.icons.materialsymbols.roundedfilled.VolunteerActivism
-import omniscient.reader.docs.DocsActivity
-import eu.kanade.tachiyomi.ui.readerlibrary.ReaderLibraryScreen
 import tachiyomi.core.common.Constants
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.ScrollbarLazyColumn
@@ -47,8 +44,6 @@ fun MoreScreen(
     onClickAbout: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
-    val context = LocalContext.current
-
     Scaffold { contentPadding ->
         ScrollbarLazyColumn(contentPadding = contentPadding) {
             item {
@@ -79,19 +74,10 @@ fun MoreScreen(
 
             item {
                 TextPreferenceWidget(
-                    title = "Reader library",
+                    title = "Books & Media",
                     subtitle = "Novels, PDFs and local media",
                     icon = MaterialSymbols.Rounded.LocalLibrary,
                     onPreferenceClick = onClickReaderLibrary,
-                )
-            }
-
-            item {
-                TextPreferenceWidget(
-                    title = "Documents",
-                    subtitle = "Read your own PDF files",
-                    icon = MaterialSymbols.Rounded.LocalLibrary,
-                    onPreferenceClick = { context.startActivity(DocsActivity.newIntent(context)) },
                 )
             }
 

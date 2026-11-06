@@ -16,8 +16,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -36,6 +36,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import eu.kanade.presentation.util.Screen
+import eu.kanade.domain.ui.model.ReaderSurfacePreset
+import eu.kanade.presentation.theme.readerSurfaceColors
+import eu.kanade.presentation.theme.toCssColor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -51,21 +54,19 @@ data class EpubReaderScreen(val bookId: String) : Screen() {
     override fun Content() = EpubReaderContent(bookId)
 }
 
-private enum class ReaderTheme(val background: String, val foreground: String) {
-    LIGHT("#ffffff", "#202124"),
-    SEPIA("#f4ecd8", "#433422"),
-    DARK("#171717", "#dedede"),
-}
-
 private data class ReaderSettings(
     val font: String = "serif",
     val size: Float = 19f,
+    val weight: Int = 400,
     val lineSpacing: Float = 1.7f,
     val paragraphSpacing: Float = 1.1f,
+    val paragraphIndent: Float = 0f,
     val margin: Int = 8,
     val alignment: String = "justify",
     val direction: String = "book",
-    val theme: ReaderTheme = ReaderTheme.LIGHT,
+    val theme: ReaderSurfacePreset = ReaderSurfacePreset.APP,
+    val customBackground: String = "#F4ECD8",
+    val customForeground: String = "#433422",
     val paged: Boolean = false,
 )
 
@@ -83,7 +84,9 @@ private fun EpubReaderContent(bookId: String) {
     var renderedChapterIndex by remember { mutableStateOf<Int?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
-    var settings by remember { mutableStateOf(loadSettings(context.getSharedPreferences("epub-reader", 0))) }
+    val appearance = remember { context.appGraph.uiPreferences.readerAppearance }
+    val epubSettingsPrefs = remember { context.getSharedPreferences("epub-reader", 0) }
+    var settings by remember { mutableStateOf(loadSettings(epubSettingsPrefs, appearance)) }
     var controlsVisible by remember { mutableStateOf(true) }
     var settingsOpen by remember { mutableStateOf(false) }
     var chaptersOpen by remember { mutableStateOf(false) }
@@ -95,6 +98,13 @@ private fun EpubReaderContent(bookId: String) {
     var pendingBookmarkText by remember { mutableStateOf<String?>(null) }
     val service = remember(context, repository) { EpubLibraryService(context, repository) }
     val prefs = remember(bookId) { context.getSharedPreferences("epub-position-$bookId", 0) }
+    val surfaceColors = readerSurfaceColors(
+        settings.theme,
+        MaterialTheme.colorScheme.background,
+        MaterialTheme.colorScheme.onBackground,
+        settings.customBackground,
+        settings.customForeground,
+    )
 
     LaunchedEffect(bookId) {
         runCatching {
@@ -142,7 +152,6 @@ private fun EpubReaderContent(bookId: String) {
         val chapter = book?.chapters?.getOrNull(chapterIndex) ?: return@LaunchedEffect
         if (renderedChapterIndex != chapterIndex) return@LaunchedEffect
         if (html.isBlank()) return@LaunchedEffect
-        saveSettings(context.getSharedPreferences("epub-reader", 0), settings)
         val view = webView ?: return@LaunchedEffect
         if (view.tag == chapterIndex) {
             prefs.edit().putInt("scroll-x-$chapterIndex", view.scrollX).putInt("scroll-y-$chapterIndex", view.scrollY).apply()
@@ -151,12 +160,12 @@ private fun EpubReaderContent(bookId: String) {
         val doc = Jsoup.parse(html)
         doc.head().append(
             """
-                <style id="reader-overrides">
-                html,body{background:${settings.theme.background}!important;color:${settings.theme.foreground}!important;
-                  font-family:${settings.font},serif!important;font-size:${settings.size}px!important;
+                  <style id="reader-overrides">
+                html,body{background:${surfaceColors.background.toCssColor()}!important;color:${surfaceColors.foreground.toCssColor()}!important;
+                  font-family:'${settings.font.replace("'", "")}',serif!important;font-size:${settings.size}px!important;font-weight:${settings.weight}!important;
                   line-height:${settings.lineSpacing}!important;text-align:${settings.alignment}!important;
                   direction:$direction!important;margin:${settings.margin}px!important;padding:0!important;}
-                p{margin-block:0 ${settings.paragraphSpacing}em!important;}
+                p{margin-block:0 ${settings.paragraphSpacing}em!important;text-indent:${settings.paragraphIndent}em!important;}
                 pre{white-space:pre-wrap!important;}
                 img,svg{max-width:100%!important;height:auto!important;}
                 ${if (settings.paged) "html,body{height:100%;overflow-y:hidden!important;column-width:96vw;column-gap:4vw;column-fill:auto;}" else ""}
@@ -255,7 +264,13 @@ private fun EpubReaderContent(bookId: String) {
         }
     }
 
-    if (settingsOpen) ReaderSettingsDialog(settings, { settings = it }, { settingsOpen = false })
+        if (settingsOpen) ReaderSettingsDialog(settings, { next ->
+            settings = next
+            saveSettings(epubSettingsPrefs, next)
+            appearance.surfacePreset.set(next.theme)
+            appearance.customBackground.set(next.customBackground)
+            appearance.customForeground.set(next.customForeground)
+        }, { settingsOpen = false })
     if (chaptersOpen) {
         AlertDialog(
             onDismissRequest = { chaptersOpen = false }, title = { Text("Contents") },
@@ -354,21 +369,25 @@ private fun ReaderSettingsDialog(settings: ReaderSettings, update: (ReaderSettin
         title = { Text("Reading settings") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row {
-                    TextButton(onClick = { update(settings.copy(font = "serif")) }) { Text("Serif") }
-                    TextButton(onClick = { update(settings.copy(font = "sans-serif")) }) { Text("Sans") }
-                    TextButton(onClick = { update(settings.copy(font = "monospace")) }) { Text("Mono") }
-                }
+                OutlinedTextField(settings.font, { update(settings.copy(font = it.take(64))) }, label = { Text("Font family (installed font name)") }, singleLine = true)
                 Text("Font size ${settings.size.toInt()} sp")
                 Slider(settings.size, { update(settings.copy(size = it)) }, valueRange = 14f..34f)
+                Text("Font weight ${settings.weight}")
+                Slider(settings.weight.toFloat(), { update(settings.copy(weight = it.toInt())) }, valueRange = 300f..800f, steps = 4)
                 Text("Line spacing ${settings.lineSpacing}")
                 Slider(settings.lineSpacing, { update(settings.copy(lineSpacing = it)) }, valueRange = 1.2f..2.4f)
                 Text("Paragraph spacing ${settings.paragraphSpacing} em")
                 Slider(settings.paragraphSpacing, { update(settings.copy(paragraphSpacing = it)) }, valueRange = 0.3f..2.5f)
+                Text("First line indent ${settings.paragraphIndent} em")
+                Slider(settings.paragraphIndent, { update(settings.copy(paragraphIndent = it)) }, valueRange = 0f..2f)
                 Text("Margins ${settings.margin} dp")
                 Slider(settings.margin.toFloat(), { update(settings.copy(margin = it.toInt())) }, valueRange = 0f..32f)
                 Row {
-                    ReaderTheme.entries.forEach { theme -> TextButton(onClick = { update(settings.copy(theme = theme)) }) { Text(theme.name) } }
+                    ReaderSurfacePreset.entries.forEach { preset -> TextButton(onClick = { update(settings.copy(theme = preset)) }) { Text(preset.name) } }
+                }
+                if (settings.theme == ReaderSurfacePreset.CUSTOM) {
+                    OutlinedTextField(settings.customBackground, { update(settings.copy(customBackground = it.take(9))) }, label = { Text("Page color (#RRGGBB)") }, singleLine = true)
+                    OutlinedTextField(settings.customForeground, { update(settings.copy(customForeground = it.take(9))) }, label = { Text("Text color (#RRGGBB)") }, singleLine = true)
                 }
                 Row {
                     TextButton(onClick = { update(settings.copy(alignment = "left")) }) { Text("Left") }
@@ -402,21 +421,27 @@ private fun BookmarkDialog(bookmarks: List<EpubBookmark>, open: (EpubBookmark) -
     )
 }
 
-private fun loadSettings(prefs: android.content.SharedPreferences) = ReaderSettings(
+private fun loadSettings(prefs: android.content.SharedPreferences, appearance: eu.kanade.domain.ui.ReaderAppearancePreferences) = ReaderSettings(
     font = prefs.getString("font", "serif") ?: "serif",
     size = prefs.getFloat("size", 19f),
+    weight = prefs.getInt("weight", 400),
     lineSpacing = prefs.getFloat("line", 1.7f),
     paragraphSpacing = prefs.getFloat("paragraph", 1.1f),
+    paragraphIndent = prefs.getFloat("indent", 0f),
     margin = prefs.getInt("margin", 8),
     alignment = prefs.getString("alignment", "justify") ?: "justify",
     direction = prefs.getString("direction", "book") ?: "book",
-    theme = ReaderTheme.entries.firstOrNull { it.name == prefs.getString("theme", "LIGHT") } ?: ReaderTheme.LIGHT,
+    theme = ReaderSurfacePreset.entries.firstOrNull { it.name == prefs.getString("theme", null) }
+        ?: appearance.surfacePreset.get(),
+    customBackground = prefs.getString("custom_background", null) ?: appearance.customBackground.get(),
+    customForeground = prefs.getString("custom_foreground", null) ?: appearance.customForeground.get(),
     paged = prefs.getBoolean("paged", false),
 )
 
 private fun saveSettings(prefs: android.content.SharedPreferences, settings: ReaderSettings) {
-    prefs.edit().putString("font", settings.font).putFloat("size", settings.size).putFloat("line", settings.lineSpacing)
-        .putFloat("paragraph", settings.paragraphSpacing).putInt("margin", settings.margin)
+    prefs.edit().putString("font", settings.font).putFloat("size", settings.size).putInt("weight", settings.weight).putFloat("line", settings.lineSpacing)
+        .putFloat("paragraph", settings.paragraphSpacing).putFloat("indent", settings.paragraphIndent).putInt("margin", settings.margin)
         .putString("alignment", settings.alignment).putString("direction", settings.direction)
-        .putString("theme", settings.theme.name).putBoolean("paged", settings.paged).apply()
+        .putString("theme", settings.theme.name).putString("custom_background", settings.customBackground)
+        .putString("custom_foreground", settings.customForeground).putBoolean("paged", settings.paged).apply()
 }

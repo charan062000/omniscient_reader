@@ -23,6 +23,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,6 +44,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import eu.kanade.presentation.theme.rememberReaderSurfaceColors
+import mihon.app.di.appGraph
 import kotlinx.coroutines.delay
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.automirroredrounded.ArrowBack
@@ -61,6 +64,10 @@ fun LocalVideoViewer(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val surfaceColors = rememberReaderSurfaceColors()
+    val speedPreference = remember { context.appGraph.uiPreferences.readerAppearance.videoSpeed }
+    val brightnessPreference = remember { context.appGraph.uiPreferences.readerAppearance.readerBrightness }
+    val brightness by brightnessPreference.changes().collectAsState(initial = brightnessPreference.get())
     var surfaceHolder by remember(item.id) { mutableStateOf<SurfaceHolder?>(null) }
     var player by remember(item.id) { mutableStateOf<MediaPlayer?>(null) }
     var isPrepared by remember(item.id) { mutableStateOf(false) }
@@ -69,7 +76,7 @@ fun LocalVideoViewer(
     var duration by remember(item.id) { mutableLongStateOf(item.progressTotal) }
     var position by remember(item.id) { mutableLongStateOf(item.progress.coerceAtLeast(0)) }
     var draggingPosition by remember { mutableFloatStateOf(Float.NaN) }
-    var speed by remember(item.id) { mutableFloatStateOf(1f) }
+    var speed by remember(item.id) { mutableFloatStateOf(speedPreference.get()) }
     var error by remember(item.id) { mutableStateOf<String?>(null) }
     var speedMenu by remember { mutableStateOf(false) }
     var trackDialog by remember { mutableStateOf<TrackType?>(null) }
@@ -156,11 +163,11 @@ fun LocalVideoViewer(
     }
 
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = !isFullscreen)) {
-        Column(Modifier.fillMaxSize().background(Color.Black)) {
-            Row(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = .8f)), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onClose) { Icon(MaterialSymbols.AutoMirroredRounded.ArrowBack, "Close video", tint = Color.White) }
-                Text(item.title, Modifier.weight(1f), color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
-                TextButton(onClick = { isFullscreen = !isFullscreen }) { Text(if (isFullscreen) "Exit fullscreen" else "Fullscreen", color = Color.White) }
+        Column(Modifier.fillMaxSize().background(surfaceColors.background)) {
+            Row(Modifier.fillMaxWidth().background(surfaceColors.background.copy(alpha = .9f)), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onClose) { Icon(MaterialSymbols.AutoMirroredRounded.ArrowBack, "Close video", tint = surfaceColors.foreground) }
+                Text(item.title, Modifier.weight(1f), color = surfaceColors.foreground, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { isFullscreen = !isFullscreen }) { Text(if (isFullscreen) "Exit fullscreen" else "Fullscreen", color = surfaceColors.foreground) }
             }
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 AndroidView(
@@ -175,10 +182,13 @@ fun LocalVideoViewer(
                         }
                     },
                 )
+                if (brightness > 0) androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                    drawRect(Color.Black.copy(alpha = brightness.coerceIn(0, 50) / 100f))
+                }
                 if (!isPrepared && error == null) androidx.compose.material3.CircularProgressIndicator(color = Color.White)
-                error?.let { Text(it, Modifier.padding(24.dp), color = Color.White) }
+                error?.let { Text(it, Modifier.padding(24.dp), color = surfaceColors.foreground) }
             }
-            Column(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = .82f)).padding(horizontal = 12.dp, vertical = 4.dp)) {
+            Column(Modifier.fillMaxWidth().background(surfaceColors.background.copy(alpha = .9f)).padding(horizontal = 12.dp, vertical = 4.dp)) {
                 Slider(
                     value = if (draggingPosition.isNaN()) position.toFloat() else draggingPosition,
                     onValueChange = { draggingPosition = it },
@@ -193,27 +203,28 @@ fun LocalVideoViewer(
                     enabled = isPrepared && duration > 0,
                 )
                 Row(horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Text("${formatDuration(position)} / ${formatDuration(duration)}", color = Color.White, style = MaterialTheme.typography.labelMedium)
+                    Text("${formatDuration(position)} / ${formatDuration(duration)}", color = surfaceColors.foreground, style = MaterialTheme.typography.labelMedium)
                     TextButton(enabled = isPrepared, onClick = {
                         player?.let {
                             if (isPlaying) it.pause() else it.start()
                             isPlaying = !isPlaying
                         }
-                    }) { Text(if (isPlaying) "Pause" else "Play", color = Color.White) }
+                    }) { Text(if (isPlaying) "Pause" else "Play", color = surfaceColors.foreground) }
                     Box {
-                        TextButton(enabled = isPrepared, onClick = { speedMenu = true }) { Text("${speed}×", color = Color.White) }
+                        TextButton(enabled = isPrepared, onClick = { speedMenu = true }) { Text("${speed}×", color = surfaceColors.foreground) }
                         DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
                             listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f).forEach { rate ->
                                 DropdownMenuItem(text = { Text("${rate}×") }, onClick = {
                                     speed = rate
+                                    speedPreference.set(rate)
                                     if (android.os.Build.VERSION.SDK_INT >= 23) runCatching { player?.playbackParams = (player?.playbackParams ?: android.media.PlaybackParams()).setSpeed(rate) }
                                     speedMenu = false
                                 })
                             }
                         }
                     }
-                    TextButton(enabled = isPrepared && trackInfo.any { it.trackType == TrackType.AUDIO.id }, onClick = { trackDialog = TrackType.AUDIO }) { Text("Audio", color = Color.White) }
-                    TextButton(enabled = isPrepared && trackInfo.any { it.trackType == TrackType.SUBTITLE.id }, onClick = { trackDialog = TrackType.SUBTITLE }) { Text("Subtitles", color = Color.White) }
+                    TextButton(enabled = isPrepared && trackInfo.any { it.trackType == TrackType.AUDIO.id }, onClick = { trackDialog = TrackType.AUDIO }) { Text("Audio", color = surfaceColors.foreground) }
+                    TextButton(enabled = isPrepared && trackInfo.any { it.trackType == TrackType.SUBTITLE.id }, onClick = { trackDialog = TrackType.SUBTITLE }) { Text("Subtitles", color = surfaceColors.foreground) }
                 }
             }
         }

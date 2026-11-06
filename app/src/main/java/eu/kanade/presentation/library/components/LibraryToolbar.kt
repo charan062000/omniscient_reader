@@ -17,6 +17,7 @@ import eu.kanade.presentation.components.AppBarActions
 import eu.kanade.presentation.components.SearchToolbar
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.rounded.FilterList
+import mihon.icons.materialsymbols.rounded.LocalLibrary
 import mihon.icons.materialsymbols.rounded.FlipToBack
 import mihon.icons.materialsymbols.rounded.SelectAll
 import tachiyomi.i18n.MR
@@ -36,6 +37,7 @@ fun LibraryToolbar(
     onClickRefresh: () -> Unit,
     onClickGlobalUpdate: () -> Unit,
     onClickOpenRandomManga: () -> Unit,
+    onClickBooksAndMedia: () -> Unit,
     searchQuery: String?,
     onSearchQueryChange: (String?) -> Unit,
     scrollBehavior: TopAppBarScrollBehavior?,
@@ -55,6 +57,7 @@ fun LibraryToolbar(
         onClickRefresh = onClickRefresh,
         onClickGlobalUpdate = onClickGlobalUpdate,
         onClickOpenRandomManga = onClickOpenRandomManga,
+        onClickBooksAndMedia = onClickBooksAndMedia,
         scrollBehavior = scrollBehavior,
     )
 }
@@ -69,6 +72,7 @@ private fun LibraryRegularToolbar(
     onClickRefresh: () -> Unit,
     onClickGlobalUpdate: () -> Unit,
     onClickOpenRandomManga: () -> Unit,
+    onClickBooksAndMedia: () -> Unit,
     scrollBehavior: TopAppBarScrollBehavior?,
 ) {
     val pillAlpha = if (isSystemInDarkTheme()) 0.12f else 0.08f
@@ -96,6 +100,11 @@ private fun LibraryRegularToolbar(
             val filterTint = if (hasFilters) MaterialTheme.colorScheme.active else LocalContentColor.current
             AppBarActions(
                 listOf(
+                    AppBar.Action(
+                        title = "Books & Media",
+                        icon = MaterialSymbols.Rounded.LocalLibrary,
+                        onClick = onClickBooksAndMedia,
+                    ),
                     AppBar.Action(
                         title = stringResource(MR.strings.action_filter),
                         icon = MaterialSymbols.Rounded.FilterList,
