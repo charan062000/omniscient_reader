@@ -171,7 +171,7 @@ fun PdfReaderScreen(
         }
     }
 
-    DisposableEffect(item.id) {
+    DisposableEffect(doc) {
         onDispose { doc?.close() }
     }
 
@@ -391,6 +391,9 @@ private fun PdfPages(
         // A little sharper than the screen so text stays crisp.
         val widthPx = (constraints.maxWidth * RENDER_SCALE).roundToInt()
         val cache = remember(widthPx) { PageCache(cacheSizeKb()) }
+        DisposableEffect(cache) {
+            onDispose { cache.evictAll() }
+        }
         val dualPage = maxWidth > maxHeight
         val pageGroups = remember(count, dualPage) { PdfSearchIndex.groupPages(count, dualPage) }
         val initialPage = pageGroups.indexOfFirst { startPage.coerceIn(0, max(0, count - 1)) in it }.coerceAtLeast(0)

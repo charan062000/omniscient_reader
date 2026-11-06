@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import tachiyomi.domain.library.content.model.ReaderContent
 import tachiyomi.domain.library.content.model.ReaderContentType
@@ -12,7 +13,6 @@ import tachiyomi.domain.library.content.repository.ReaderLibraryRepository
 import java.io.File
 import java.io.IOException
 import java.util.UUID
-import kotlinx.coroutines.flow.first
 
 /** Imports new PDFs and migrates legacy documents into the SQLDelight reader library. */
 class PdfLibraryService(
@@ -88,7 +88,11 @@ class PdfLibraryService(
         }
         content.coverUri?.let { raw ->
             val cover = runCatching { File(Uri.parse(raw).path.orEmpty()).canonicalFile }.getOrNull() ?: return@let
-            if (cover.path.startsWith(covers.canonicalPath + File.separator) || cover.path.contains("${File.separator}omniscient_covers${File.separator}")) cover.delete()
+            if (cover.path.startsWith(covers.canonicalPath + File.separator) ||
+                cover.path.contains("${File.separator}omniscient_covers${File.separator}")
+            ) {
+                cover.delete()
+            }
         }
     }
 
@@ -98,18 +102,22 @@ class PdfLibraryService(
         val temp = File(files, "$id.tmp")
         val target = File(files, "$id.pdf")
         try {
-            val input = appContext.contentResolver.openInputStream(uri) ?: throw IOException("Selected PDF is no longer available")
-            input.use { source -> temp.outputStream().buffered().use { output ->
-                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                var copied = 0L
-                while (true) {
-                    val read = source.read(buffer)
-                    if (read < 0) break
-                    copied += read
-                    if (copied > MAX_IMPORT_BYTES) throw IOException("PDF exceeds the 1 GB import limit")
-                    output.write(buffer, 0, read)
+            val input =
+                appContext.contentResolver.openInputStream(uri)
+                    ?: throw IOException("Selected PDF is no longer available")
+            input.use { source ->
+                temp.outputStream().buffered().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var copied = 0L
+                    while (true) {
+                        val read = source.read(buffer)
+                        if (read < 0) break
+                        copied += read
+                        if (copied > MAX_IMPORT_BYTES) throw IOException("PDF exceeds the 1 GB import limit")
+                        output.write(buffer, 0, read)
+                    }
                 }
-            } }
+            }
             if (!temp.renameTo(target)) temp.copyTo(target, overwrite = true)
             return Uri.fromFile(target)
         } catch (error: Throwable) {
@@ -123,11 +131,16 @@ class PdfLibraryService(
 
     private suspend fun saveCover(id: String, doc: PdfDoc) {
         val bitmap = doc.render(0, COVER_WIDTH_PX) ?: return
-        covers.mkdirs()
-        File(covers, "$id.jpg").outputStream().use { output ->
-            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, COVER_QUALITY, output)
+        try {
+            covers.mkdirs()
+            File(covers, "$id.jpg").outputStream().use { output ->
+                if (!bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, COVER_QUALITY, output)) {
+                    throw IOException("PDF cover could not be encoded")
+                }
+            }
+        } finally {
+            bitmap.recycle()
         }
-        bitmap.recycle()
     }
 
     private fun displayName(uri: Uri): String {

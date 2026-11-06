@@ -40,7 +40,10 @@ class DocsActivity : BaseActivity() {
     companion object {
         private const val EXTRA_CONTENT_ID = "pdf_content_id"
 
-        fun newIntent(context: Context, contentId: String? = null): Intent = Intent(context, DocsActivity::class.java).apply {
+        fun newIntent(context: Context, contentId: String? = null): Intent = Intent(
+            context,
+            DocsActivity::class.java,
+        ).apply {
             contentId?.let { putExtra(EXTRA_CONTENT_ID, it) }
         }
     }

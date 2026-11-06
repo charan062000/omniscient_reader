@@ -4,9 +4,9 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.RectF
-import android.os.Build
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.annotation.RequiresApi
 import kotlinx.coroutines.CoroutineScope
@@ -42,7 +42,8 @@ class PdfDoc private constructor(
 ) : Closeable {
 
     private val mutex = Mutex()
-    private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val cleanupJob = SupervisorJob()
+    private val cleanupScope = CoroutineScope(cleanupJob + Dispatchers.IO)
 
     @Volatile
     private var closed = false
@@ -122,25 +123,35 @@ class PdfDoc private constructor(
         return page.searchText(query).mapNotNull { match ->
             val bounds = match.bounds.map { rect -> rect.normalized(page.width, page.height) }
             if (bounds.isEmpty()) return@mapNotNull null
-            PdfTextSearchResult(pageIndex = pageIndex, excerpt = PdfSearchIndex.snippet(fullText, query), matchedText = query, bounds = bounds)
+            PdfTextSearchResult(
+                pageIndex = pageIndex,
+                excerpt = PdfSearchIndex.snippet(fullText, query),
+                matchedText = query,
+                bounds = bounds,
+            )
         }
     }
 
     override fun close() {
+        if (closed) return
         closed = true
         // Wait (off the main thread) for any page still being drawn, then release the file.
         cleanupScope.launch {
-            mutex.withLock {
-                try {
-                    renderer.close()
-                } catch (_: Throwable) {
-                    // Already closed
+            try {
+                mutex.withLock {
+                    try {
+                        renderer.close()
+                    } catch (_: Throwable) {
+                        // Already closed
+                    }
+                    try {
+                        descriptor.close()
+                    } catch (_: Throwable) {
+                        // Already closed
+                    }
                 }
-                try {
-                    descriptor.close()
-                } catch (_: Throwable) {
-                    // Already closed
-                }
+            } finally {
+                cleanupJob.cancel()
             }
         }
     }
@@ -155,7 +166,10 @@ class PdfDoc private constructor(
          */
         fun open(context: Context, uri: Uri): PdfDoc {
             val descriptor = if (uri.scheme == "file") {
-                ParcelFileDescriptor.open(File(uri.path ?: throw IOException("Missing file path")), ParcelFileDescriptor.MODE_READ_ONLY)
+                ParcelFileDescriptor.open(
+                    File(uri.path ?: throw IOException("Missing file path")),
+                    ParcelFileDescriptor.MODE_READ_ONLY,
+                )
             } else {
                 context.contentResolver.openFileDescriptor(uri, "r")
             }

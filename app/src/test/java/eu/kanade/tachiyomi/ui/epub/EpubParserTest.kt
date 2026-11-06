@@ -22,8 +22,10 @@ class EpubParserTest {
             </package>
             """.trimIndent(),
             mapOf(
-                "toc.ncx" to "<ncx><navMap><navPoint><navLabel><text>Opening</text></navLabel><content src=\"Text/chapter1.xhtml\"/></navPoint><navPoint><navLabel><text>Afterword</text></navLabel><content src=\"Text/chapter2.xhtml\"/></navPoint></navMap></ncx>",
-                "Text/chapter1.xhtml" to "<html><head><title>First</title></head><body><p>First chapter body.</p></body></html>",
+                "toc.ncx" to
+                    "<ncx><navMap><navPoint><navLabel><text>Opening</text></navLabel><content src=\"Text/chapter1.xhtml\"/></navPoint><navPoint><navLabel><text>Afterword</text></navLabel><content src=\"Text/chapter2.xhtml\"/></navPoint></navMap></ncx>",
+                "Text/chapter1.xhtml" to
+                    "<html><head><title>First</title></head><body><p>First chapter body.</p></body></html>",
                 "Text/chapter2.xhtml" to "<html><body><p>Last chapter searchable phrase.</p></body></html>",
                 "Images/cover.jpg" to "cover-data",
             ),
@@ -50,7 +52,8 @@ class EpubParserTest {
             </package>
             """.trimIndent(),
             mapOf(
-                "nav.xhtml" to "<html xmlns:epub=\"http://www.idpf.org/2007/ops\"><body><nav epub:type=\"toc\"><ol><li><a href=\"chapter.xhtml\">Chapter One</a></li></ol></nav></body></html>",
+                "nav.xhtml" to
+                    "<html xmlns:epub=\"http://www.idpf.org/2007/ops\"><body><nav epub:type=\"toc\"><ol><li><a href=\"chapter.xhtml\">Chapter One</a></li></ol></nav></body></html>",
                 "chapter.xhtml" to "<html><body><p>Book text.</p></body></html>",
                 "cover.png" to "image-data",
             ),
@@ -68,7 +71,11 @@ class EpubParserTest {
         val malformed = File.createTempFile("bad-", ".epub").apply { writeText("not a zip") }
         assertThrows(Exception::class.java) { parser.parse(malformed) }
         malformed.delete()
-        val empty = fixture("<package><metadata><title>Empty</title></metadata><manifest></manifest><spine/></package>", emptyMap())
+        val empty =
+            fixture(
+                "<package><metadata><title>Empty</title></metadata><manifest></manifest><spine/></package>",
+                emptyMap(),
+            )
         assertThrows(Exception::class.java) { parser.parse(empty) }
         empty.delete()
     }
@@ -82,7 +89,10 @@ class EpubParserTest {
                 zip.closeEntry()
             }
             add("mimetype", "application/epub+zip")
-            add("META-INF/container.xml", "<container><rootfiles><rootfile full-path=\"OEBPS/content.opf\"/></rootfiles></container>")
+            add(
+                "META-INF/container.xml",
+                "<container><rootfiles><rootfile full-path=\"OEBPS/content.opf\"/></rootfiles></container>",
+            )
             add("OEBPS/content.opf", opf)
             extraEntries.forEach { (path, text) -> add("OEBPS/$path", text) }
         }

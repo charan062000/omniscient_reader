@@ -19,18 +19,48 @@ class ReaderLibraryRepositoryImplTest {
         val queries = mockk<Reader_contentQueries>()
         val database = mockk<Database>()
         every { database.reader_contentQueries } returns queries
-        coEvery { queries.upsert(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns 1L
-        val types = listOf(ReaderContentType.IMAGE, ReaderContentType.GIF, ReaderContentType.VIDEO, ReaderContentType.ARCHIVE)
+        coEvery {
+            queries.upsert(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+        } returns 1L
+        val types = listOf(
+            ReaderContentType.IMAGE,
+            ReaderContentType.GIF,
+            ReaderContentType.VIDEO,
+            ReaderContentType.ARCHIVE,
+        )
 
         types.forEach { type ->
             ReaderLibraryRepositoryImpl(database).upsert(
-                ReaderContent("${type.name.lowercase()}:fixture", type, "fixture", "file:///fixture", null, false, 1, null, 0, 0),
+                ReaderContent(
+                    "${type.name.lowercase()}:fixture",
+                    type,
+                    "fixture",
+                    "file:///fixture",
+                    null,
+                    false,
+                    1,
+                    null,
+                    0,
+                    0,
+                ),
             )
         }
 
         types.forEach { type ->
             coVerify(exactly = 1) {
-                queries.upsert("${type.name.lowercase()}:fixture", type.name, "fixture", "file:///fixture", null, false, 1, null, 0, 0, null)
+                queries.upsert(
+                    "${type.name.lowercase()}:fixture",
+                    type.name,
+                    "fixture",
+                    "file:///fixture",
+                    null,
+                    false,
+                    1,
+                    null,
+                    0,
+                    0,
+                    null,
+                )
             }
         }
     }
@@ -64,7 +94,9 @@ class ReaderLibraryRepositoryImplTest {
         val queries = mockk<Reader_contentQueries>()
         val database = mockk<Database>()
         every { database.reader_contentQueries } returns queries
-        coEvery { queries.upsertPdfAnnotation(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns 1L
+        coEvery {
+            queries.upsertPdfAnnotation(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+        } returns 1L
         val annotation = PdfAnnotation(
             id = "mark-1", documentId = "pdf:book-1", pageIndex = 7, type = PdfAnnotationType.HIGHLIGHT,
             text = "important", imageUri = null, left = .1, top = .2, right = .6, bottom = .25, createdAt = 1234,
@@ -73,7 +105,19 @@ class ReaderLibraryRepositoryImplTest {
         ReaderLibraryRepositoryImpl(database).upsertPdfAnnotation(annotation)
 
         coVerify(exactly = 1) {
-            queries.upsertPdfAnnotation("mark-1", "pdf:book-1", 7, "HIGHLIGHT", "important", null, .1, .2, .6, .25, 1234)
+            queries.upsertPdfAnnotation(
+                "mark-1",
+                "pdf:book-1",
+                7,
+                "HIGHLIGHT",
+                "important",
+                null,
+                .1,
+                .2,
+                .6,
+                .25,
+                1234,
+            )
         }
     }
 }

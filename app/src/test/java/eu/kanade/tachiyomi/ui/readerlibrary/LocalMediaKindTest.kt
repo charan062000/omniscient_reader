@@ -1,9 +1,9 @@
 package eu.kanade.tachiyomi.ui.readerlibrary
 
+import omniscient.reader.localmedia.LocalMediaKind
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
-import omniscient.reader.localmedia.LocalMediaKind
 import tachiyomi.domain.library.content.model.ReaderContentType
 
 class LocalMediaKindTest {

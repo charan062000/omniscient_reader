@@ -12,9 +12,9 @@ import androidx.core.app.ActivityCompat
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import eu.kanade.domain.ui.UiPreferences
+import eu.kanade.domain.ui.model.ReaderSurfacePreset
 import eu.kanade.domain.ui.model.TabletUiMode
 import eu.kanade.domain.ui.model.ThemeMode
-import eu.kanade.domain.ui.model.ReaderSurfacePreset
 import eu.kanade.domain.ui.model.TimeFormat
 import eu.kanade.domain.ui.model.setAppCompatDelegateThemeMode
 import eu.kanade.presentation.more.settings.Preference
@@ -78,7 +78,7 @@ object SettingsAppearanceScreen : SearchableSettings {
             ),
             Preference.PreferenceItem.ListPreference(
                 preference = uiPreferences.readerAppearance.videoSpeed,
-                entries = listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f).associateWith { "${it}×" },
+                entries = listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f).associateWith { "$it×" },
                 title = "Default video speed",
             ),
             Preference.PreferenceItem.SliderPreference(

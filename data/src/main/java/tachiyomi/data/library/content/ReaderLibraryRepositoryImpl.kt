@@ -10,10 +10,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import tachiyomi.data.Database
 import tachiyomi.data.subscribeToList
-import tachiyomi.domain.library.content.model.ReaderCollection
 import tachiyomi.domain.library.content.model.EpubBookmark
 import tachiyomi.domain.library.content.model.PdfAnnotation
 import tachiyomi.domain.library.content.model.PdfAnnotationType
+import tachiyomi.domain.library.content.model.ReaderCollection
 import tachiyomi.domain.library.content.model.ReaderContent
 import tachiyomi.domain.library.content.model.ReaderContentType
 import tachiyomi.domain.library.content.repository.ReaderLibraryRepository
@@ -95,8 +95,21 @@ class ReaderLibraryRepositoryImpl(
     override fun observeEpubBookmarks(bookId: String): Flow<List<EpubBookmark>> =
         database.reader_contentQueries.observeBookmarks(bookId, ::mapBookmark).subscribeToList()
 
-    override suspend fun addEpubBookmark(bookId: String, chapterIndex: Long, chapterTitle: String, selectedText: String?, context: String?) {
-        database.reader_contentQueries.insertBookmark(bookId, chapterIndex, chapterTitle, selectedText, context, System.currentTimeMillis())
+    override suspend fun addEpubBookmark(
+        bookId: String,
+        chapterIndex: Long,
+        chapterTitle: String,
+        selectedText: String?,
+        context: String?,
+    ) {
+        database.reader_contentQueries.insertBookmark(
+            bookId,
+            chapterIndex,
+            chapterTitle,
+            selectedText,
+            context,
+            System.currentTimeMillis(),
+        )
     }
 
     override suspend fun removeEpubBookmark(bookmarkId: Long) {
@@ -160,7 +173,15 @@ class ReaderLibraryRepositoryImpl(
     private fun mapCollection(id: Long, name: String, order: Long) =
         ReaderCollection(id = id, name = name, order = order)
 
-    private fun mapBookmark(id: Long, book_id: String, chapter_index: Long, chapter_title: String, selected_text: String?, context: String?, created_at: Long) =
+    private fun mapBookmark(
+        id: Long,
+        book_id: String,
+        chapter_index: Long,
+        chapter_title: String,
+        selected_text: String?,
+        context: String?,
+        created_at: Long,
+    ) =
         EpubBookmark(id, book_id, chapter_index, chapter_title, selected_text, context, created_at)
 
     private fun mapPdfAnnotation(

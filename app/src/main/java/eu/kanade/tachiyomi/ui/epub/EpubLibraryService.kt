@@ -23,18 +23,21 @@ class EpubLibraryService(
         root.mkdirs()
         val stage = File(root, "import-${System.nanoTime()}.epub")
         try {
-            val input = appContext.contentResolver.openInputStream(uri) ?: throw IOException("Cannot open selected EPUB")
-            input.use { source -> stage.outputStream().buffered().use { target ->
-                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                var total = 0L
-                while (true) {
-                    val count = source.read(buffer)
-                    if (count < 0) break
-                    total += count
-                    if (total > MAX_ARCHIVE_BYTES) throw IOException("EPUB exceeds the 500 MB import limit")
-                    target.write(buffer, 0, count)
+            val input =
+                appContext.contentResolver.openInputStream(uri) ?: throw IOException("Cannot open selected EPUB")
+            input.use { source ->
+                stage.outputStream().buffered().use { target ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var total = 0L
+                    while (true) {
+                        val count = source.read(buffer)
+                        if (count < 0) break
+                        total += count
+                        if (total > MAX_ARCHIVE_BYTES) throw IOException("EPUB exceeds the 500 MB import limit")
+                        target.write(buffer, 0, count)
+                    }
                 }
-            } }
+            }
             val id = sha256(stage)
             val directory = File(root, id)
             directory.mkdirs()
@@ -44,9 +47,17 @@ class EpubLibraryService(
             }
             extractResources(epub, File(directory, "resources"))
             val metadata = parser.parse(epub)
-            val cover = metadata.coverPath?.let { File(File(directory, "resources"), it).takeIf(File::isFile)?.toURI()?.toString() }
+            val cover = metadata.coverPath?.let {
+                File(File(directory, "resources"), it).takeIf(File::isFile)?.toURI()?.toString()
+            }
             val existing = repository.get("epub:$id")
-            val displayName = appContext.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            val displayName = appContext.contentResolver.query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )
                 ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
                 ?.substringBeforeLast('.')
             return ReaderContent(
@@ -71,24 +82,33 @@ class EpubLibraryService(
         root.mkdirs()
         val temp = File(root, "text-${System.nanoTime()}.txt")
         try {
-            val source = appContext.contentResolver.openInputStream(uri) ?: throw IOException("Cannot open selected text book")
-            source.use { input -> temp.outputStream().buffered().use { output ->
-                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                var total = 0L
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    total += count
-                    if (total > MAX_TEXT_BYTES) throw IOException("Text book exceeds the 50 MB import limit")
-                    output.write(buffer, 0, count)
+            val source =
+                appContext.contentResolver.openInputStream(uri) ?: throw IOException("Cannot open selected text book")
+            source.use { input ->
+                temp.outputStream().buffered().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var total = 0L
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        total += count
+                        if (total > MAX_TEXT_BYTES) throw IOException("Text book exceeds the 50 MB import limit")
+                        output.write(buffer, 0, count)
+                    }
                 }
-            } }
+            }
             val id = sha256(temp)
             val directory = File(root, "text-$id").apply { mkdirs() }
             val target = File(directory, "book.txt")
             if (!target.exists() && !temp.renameTo(target)) temp.copyTo(target, overwrite = true)
             val old = repository.get("text:$id")
-            val displayName = appContext.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            val displayName = appContext.contentResolver.query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )
                 ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0)?.substringBeforeLast('.') else null }
             return ReaderContent(
                 id = "text:$id", type = ReaderContentType.TEXT,
@@ -125,18 +145,24 @@ class EpubLibraryService(
                 val output = File(destination, relative)
                 if (!output.canonicalPath.startsWith(destination.canonicalPath + File.separator)) continue
                 output.parentFile?.mkdirs()
-                zip.getInputStream(entry).use { input -> output.outputStream().buffered().use { out ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    var entryTotal = 0L
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        entryTotal += read
-                        total += read
-                        if (entryTotal > MAX_ENTRY_BYTES || total > MAX_EXTRACTED_BYTES) throw IOException("EPUB expands beyond the safe extraction limit")
-                        out.write(buffer, 0, read)
+                zip.getInputStream(entry).use { input ->
+                    output.outputStream().buffered().use { out ->
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        var entryTotal = 0L
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            entryTotal += read
+                            total += read
+                            if (entryTotal > MAX_ENTRY_BYTES ||
+                                total > MAX_EXTRACTED_BYTES
+                            ) {
+                                throw IOException("EPUB expands beyond the safe extraction limit")
+                            }
+                            out.write(buffer, 0, read)
+                        }
                     }
-                } }
+                }
             }
         }
         File(destination, ".complete").writeText("ok")

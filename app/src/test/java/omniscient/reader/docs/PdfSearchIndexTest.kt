@@ -7,7 +7,10 @@ class PdfSearchIndexTest {
     @Test
     fun `snippet returns matching context independent of case`() {
         val text = "A searchable report has the phrase Quarterly Revenue near its center and more text follows."
-        assertEquals("A searchable report has the phrase Quarterly Revenue near its center and more text…", PdfSearchIndex.snippet(text, "quarterly revenue", 36))
+        assertEquals(
+            "A searchable report has the phrase Quarterly Revenue near its center and more text…",
+            PdfSearchIndex.snippet(text, "quarterly revenue", 36),
+        )
     }
 
     @Test

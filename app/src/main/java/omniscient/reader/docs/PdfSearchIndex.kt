@@ -9,7 +9,21 @@ object PdfSearchIndex {
         val rawStart = (index - contextChars).coerceAtLeast(0)
         val rawEnd = (index + query.length + contextChars).coerceAtMost(text.length)
         val start = if (rawStart == 0) 0 else text.indexOf(' ', rawStart).let { if (it < 0) rawStart else it + 1 }
-        val end = if (rawEnd == text.length) text.length else text.lastIndexOf(' ', rawEnd).let { if (it <= index + query.length) rawEnd else it }
+        val end = if (rawEnd ==
+            text.length
+        ) {
+            text.length
+        } else {
+            text.lastIndexOf(' ', rawEnd).let {
+                if (it <=
+                    index + query.length
+                ) {
+                    rawEnd
+                } else {
+                    it
+                }
+            }
+        }
         return buildString {
             if (start > 0) append('…')
             append(text.substring(start, end).trim())

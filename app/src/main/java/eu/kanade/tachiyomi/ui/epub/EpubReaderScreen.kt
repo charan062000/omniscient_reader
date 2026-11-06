@@ -4,6 +4,7 @@ import android.graphics.Color as AndroidColor
 import android.os.Handler
 import android.os.Looper
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +22,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,6 +50,7 @@ import tachiyomi.domain.library.content.model.EpubBookmark
 import tachiyomi.domain.library.content.model.ReaderContent
 import tachiyomi.domain.library.content.model.ReaderContentType
 import java.io.File
+import java.io.ByteArrayInputStream
 
 data class EpubReaderScreen(val bookId: String) : Screen() {
     @Composable
@@ -178,6 +181,19 @@ private fun EpubReaderContent(bookId: String) {
         view.loadDataWithBaseURL(chapterFile.toURI().toString(), doc.outerHtml(), "text/html", "UTF-8", null)
     }
 
+    DisposableEffect(webView) {
+        val ownedWebView = webView
+        onDispose {
+            ownedWebView?.apply {
+                stopLoading()
+                webChromeClient = null
+                webViewClient = WebViewClient()
+                removeAllViews()
+                destroy()
+            }
+        }
+    }
+
     val currentChapter = book?.chapters?.getOrNull(chapterIndex)
     Column(Modifier.fillMaxSize()) {
         if (controlsVisible) {
@@ -215,7 +231,23 @@ private fun EpubReaderContent(bookId: String) {
                     webView = view
                     view.chapterIndex = chapterIndex
                     view.isHorizontalScrollBarEnabled = settings.paged
+                    val allowedResourceRoot = content?.let(service::getResourceRoot)?.canonicalPath
                     view.webViewClient = object : WebViewClient() {
+                        override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                            val uri = request?.url ?: return null
+                            val blocked = when (uri.scheme?.lowercase()) {
+                                "http", "https", "ws", "wss" -> true
+                                "file" -> {
+                                    val root = allowedResourceRoot
+                                    val requested = runCatching { File(uri.path.orEmpty()).canonicalPath }.getOrNull()
+                                    root == null || requested == null ||
+                                        (requested != root && !requested.startsWith(root + File.separator))
+                                }
+                                else -> false
+                            }
+                            return if (blocked) WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0))) else null
+                        }
+
                         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                             val uri = request?.url ?: return true
                             if (uri.scheme == "about") return false

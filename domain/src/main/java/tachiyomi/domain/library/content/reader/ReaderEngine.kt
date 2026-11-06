@@ -1,8 +1,8 @@
 package tachiyomi.domain.library.content.reader
 
-import java.io.Closeable
 import tachiyomi.domain.library.content.model.ReaderContent
 import tachiyomi.domain.library.content.model.ReaderContentType
+import java.io.Closeable
 
 /** Format-specific reader adapter. Implementations live beside the format's Android rendering code. */
 interface ReaderEngine {

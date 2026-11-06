@@ -1,11 +1,11 @@
 package eu.kanade.presentation.theme
 
-import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import eu.kanade.domain.ui.model.ReaderSurfacePreset
 import mihon.app.di.appGraph
@@ -17,9 +17,19 @@ fun rememberReaderSurfaceColors(): ReaderSurfaceColors {
     val context = LocalContext.current
     val appearance = remember { context.appGraph.uiPreferences.readerAppearance }
     val preset by appearance.surfacePreset.changes().collectAsState(initial = appearance.surfacePreset.get())
-    val customBackground by appearance.customBackground.changes().collectAsState(initial = appearance.customBackground.get())
-    val customForeground by appearance.customForeground.changes().collectAsState(initial = appearance.customForeground.get())
-    return readerSurfaceColors(preset, MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.onBackground, customBackground, customForeground)
+    val customBackground by appearance.customBackground.changes().collectAsState(
+        initial = appearance.customBackground.get(),
+    )
+    val customForeground by appearance.customForeground.changes().collectAsState(
+        initial = appearance.customForeground.get(),
+    )
+    return readerSurfaceColors(
+        preset,
+        MaterialTheme.colorScheme.background,
+        MaterialTheme.colorScheme.onBackground,
+        customBackground,
+        customForeground,
+    )
 }
 
 fun readerSurfaceColors(
