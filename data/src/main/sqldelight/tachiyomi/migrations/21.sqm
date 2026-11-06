@@ -1,0 +1,13 @@
+ALTER TABLE reader_content ADD COLUMN author TEXT;
+
+CREATE TABLE epub_bookmark(
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    book_id TEXT NOT NULL,
+    chapter_index INTEGER NOT NULL,
+    chapter_title TEXT NOT NULL,
+    selected_text TEXT,
+    context TEXT,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY(book_id) REFERENCES reader_content(id) ON DELETE CASCADE
+);
+CREATE INDEX epub_bookmark_book_index ON epub_bookmark(book_id, chapter_index);

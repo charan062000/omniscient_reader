@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import mihon.app.di.appGraph
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.automirroredrounded.ArrowBack
 import mihon.icons.materialsymbols.rounded.Add
@@ -180,7 +181,10 @@ fun DocsLibraryScreen(
                     onClick = {
                         pendingRemove = null
                         scope.launch {
-                            withContext(Dispatchers.IO) { store.remove(target.id) }
+                            withContext(Dispatchers.IO) {
+                                store.remove(target.id)
+                                context.appGraph.readerLibraryRepository.remove("pdf:${target.id}")
+                            }
                             items = withContext(Dispatchers.IO) { store.all() }
                         }
                     },

@@ -1,0 +1,23 @@
+CREATE TABLE reader_content(
+    id TEXT NOT NULL PRIMARY KEY,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content_uri TEXT NOT NULL,
+    cover_uri TEXT,
+    favorite INTEGER NOT NULL DEFAULT 0,
+    added_at INTEGER NOT NULL,
+    last_opened_at INTEGER,
+    progress INTEGER NOT NULL DEFAULT 0,
+    progress_total INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX reader_content_type_index ON reader_content(type);
+CREATE INDEX reader_content_title_index ON reader_content(title COLLATE NOCASE);
+
+CREATE TABLE reader_content_category(
+    content_id TEXT NOT NULL,
+    category_id INTEGER NOT NULL,
+    UNIQUE(content_id, category_id),
+    FOREIGN KEY(content_id) REFERENCES reader_content(id) ON DELETE CASCADE,
+    FOREIGN KEY(category_id) REFERENCES category(id) ON DELETE CASCADE
+);
+CREATE INDEX reader_content_category_category_index ON reader_content_category(category_id);

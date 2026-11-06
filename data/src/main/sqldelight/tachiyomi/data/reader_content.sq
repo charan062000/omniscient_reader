@@ -1,0 +1,107 @@
+import kotlin.Boolean;
+
+CREATE TABLE reader_content(
+    id TEXT NOT NULL PRIMARY KEY,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content_uri TEXT NOT NULL,
+    cover_uri TEXT,
+    favorite INTEGER AS Boolean NOT NULL DEFAULT 0,
+    added_at INTEGER NOT NULL,
+    last_opened_at INTEGER,
+    progress INTEGER NOT NULL DEFAULT 0,
+    progress_total INTEGER NOT NULL DEFAULT 0,
+    author TEXT
+);
+
+CREATE INDEX reader_content_type_index ON reader_content(type);
+CREATE INDEX reader_content_title_index ON reader_content(title COLLATE NOCASE);
+
+CREATE TABLE reader_content_category(
+    content_id TEXT NOT NULL,
+    category_id INTEGER NOT NULL,
+    UNIQUE(content_id, category_id),
+    FOREIGN KEY(content_id) REFERENCES reader_content(id) ON DELETE CASCADE,
+    FOREIGN KEY(category_id) REFERENCES category(id) ON DELETE CASCADE
+);
+
+CREATE INDEX reader_content_category_category_index
+ON reader_content_category(category_id);
+
+observeAll:
+SELECT id, type, title, content_uri, cover_uri, favorite, added_at, last_opened_at, progress, progress_total, author
+FROM reader_content
+WHERE :type IS NULL OR type = :type
+ORDER BY title COLLATE NOCASE;
+
+getById:
+SELECT id, type, title, content_uri, cover_uri, favorite, added_at, last_opened_at, progress, progress_total, author
+FROM reader_content WHERE id = :id;
+
+upsert:
+INSERT INTO reader_content(id, type, title, content_uri, cover_uri, favorite, added_at, last_opened_at, progress, progress_total, author)
+VALUES (:id, :type, :title, :contentUri, :coverUri, :favorite, :addedAt, :lastOpenedAt, :progress, :progressTotal, :author)
+ON CONFLICT(id) DO UPDATE SET
+    type = excluded.type,
+    title = excluded.title,
+    content_uri = excluded.content_uri,
+    cover_uri = coalesce(excluded.cover_uri, reader_content.cover_uri),
+    progress = excluded.progress,
+    progress_total = excluded.progress_total,
+    author = coalesce(excluded.author, reader_content.author),
+    last_opened_at = coalesce(excluded.last_opened_at, reader_content.last_opened_at);
+
+remove:
+DELETE FROM reader_content WHERE id = :id;
+
+setFavorite:
+UPDATE reader_content SET favorite = :favorite WHERE id = :id;
+
+updateProgress:
+UPDATE reader_content SET progress = :progress, progress_total = :total, last_opened_at = :openedAt WHERE id = :id;
+
+observeCollections:
+SELECT id, name, `order` FROM category WHERE id > 0 ORDER BY `order`;
+
+observeContentIdsInCollection:
+SELECT content_id FROM reader_content_category WHERE category_id = :collectionId;
+
+insertCollection:
+INSERT INTO category(name, `order`, flags)
+SELECT :name, coalesce(max(`order`), -1) + 1, 0 FROM category
+WHERE NOT EXISTS (SELECT 1 FROM category WHERE lower(name) = lower(:name));
+
+clearCollectionsForContent:
+DELETE FROM reader_content_category WHERE content_id = :contentId;
+
+addCollectionToContent:
+INSERT INTO reader_content_category(content_id, category_id)
+VALUES (:contentId, :collectionId)
+ON CONFLICT(content_id, category_id) DO NOTHING;
+
+CREATE TABLE epub_bookmark(
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    book_id TEXT NOT NULL,
+    chapter_index INTEGER NOT NULL,
+    chapter_title TEXT NOT NULL,
+    selected_text TEXT,
+    context TEXT,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY(book_id) REFERENCES reader_content(id) ON DELETE CASCADE
+);
+
+CREATE INDEX epub_bookmark_book_index ON epub_bookmark(book_id, chapter_index);
+
+observeBookmarks:
+SELECT id, book_id, chapter_index, chapter_title, selected_text, context, created_at
+FROM epub_bookmark WHERE book_id = :bookId ORDER BY created_at DESC;
+
+insertBookmark:
+INSERT INTO epub_bookmark(book_id, chapter_index, chapter_title, selected_text, context, created_at)
+VALUES (:bookId, :chapterIndex, :chapterTitle, :selectedText, :context, :createdAt);
+
+removeBookmark:
+DELETE FROM epub_bookmark WHERE id = :id;
+
+removeAllBookmarks:
+DELETE FROM epub_bookmark WHERE book_id = :bookId;

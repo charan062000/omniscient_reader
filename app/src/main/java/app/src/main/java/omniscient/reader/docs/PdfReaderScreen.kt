@@ -62,6 +62,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.automirroredrounded.ArrowBack
+import mihon.app.di.appGraph
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -83,6 +84,7 @@ fun PdfReaderScreen(
 ) {
     val context = LocalContext.current
     val view = LocalView.current
+    val scope = rememberCoroutineScope()
 
     var doc by remember { mutableStateOf<PdfDoc?>(null) }
     var ratios by remember { mutableStateOf<FloatArray?>(null) }
@@ -160,7 +162,17 @@ fun PdfReaderScreen(
                     startPage = item.lastPage,
                     controlsVisible = controlsVisible,
                     onToggleControls = { controlsVisible = !controlsVisible },
-                    onProgress = { page -> store.updateProgress(item.id, page) },
+                    onProgress = { page ->
+                        store.updateProgress(item.id, page)
+                        scope.launch {
+                            context.appGraph.readerLibraryRepository.updateProgress(
+                                id = "pdf:${item.id}",
+                                progress = page.toLong(),
+                                total = item.pageCount.toLong(),
+                                openedAt = System.currentTimeMillis(),
+                            )
+                        }
+                    },
                     onClose = onClose,
                 )
             }

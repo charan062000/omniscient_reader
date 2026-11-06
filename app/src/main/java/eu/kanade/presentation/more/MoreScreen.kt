@@ -22,6 +22,7 @@ import mihon.icons.materialsymbols.rounded.Settings
 import mihon.icons.materialsymbols.rounded.Storage
 import mihon.icons.materialsymbols.roundedfilled.VolunteerActivism
 import omniscient.reader.docs.DocsActivity
+import eu.kanade.tachiyomi.ui.readerlibrary.ReaderLibraryScreen
 import tachiyomi.core.common.Constants
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.ScrollbarLazyColumn
@@ -37,6 +38,7 @@ fun MoreScreen(
     incognitoMode: Boolean,
     onIncognitoModeChange: (Boolean) -> Unit,
     onClickDownloadQueue: () -> Unit,
+    onClickReaderLibrary: () -> Unit,
     onClickCategories: () -> Unit,
     onClickStats: () -> Unit,
     onClickDataAndStorage: () -> Unit,
@@ -74,6 +76,15 @@ fun MoreScreen(
             }
 
             item { HorizontalDivider() }
+
+            item {
+                TextPreferenceWidget(
+                    title = "Reader library",
+                    subtitle = "Novels, PDFs and local media",
+                    icon = MaterialSymbols.Rounded.LocalLibrary,
+                    onPreferenceClick = onClickReaderLibrary,
+                )
+            }
 
             item {
                 TextPreferenceWidget(
