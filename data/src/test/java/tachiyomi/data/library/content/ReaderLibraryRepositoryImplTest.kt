@@ -10,8 +10,31 @@ import tachiyomi.data.Database
 import tachiyomi.data.Reader_contentQueries
 import tachiyomi.domain.library.content.model.PdfAnnotation
 import tachiyomi.domain.library.content.model.PdfAnnotationType
+import tachiyomi.domain.library.content.model.ReaderContent
+import tachiyomi.domain.library.content.model.ReaderContentType
 
 class ReaderLibraryRepositoryImplTest {
+    @Test
+    fun `local media kinds are persisted through the unified content row`() = runTest {
+        val queries = mockk<Reader_contentQueries>()
+        val database = mockk<Database>()
+        every { database.reader_contentQueries } returns queries
+        coEvery { queries.upsert(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns 1L
+        val types = listOf(ReaderContentType.IMAGE, ReaderContentType.GIF, ReaderContentType.VIDEO, ReaderContentType.ARCHIVE)
+
+        types.forEach { type ->
+            ReaderLibraryRepositoryImpl(database).upsert(
+                ReaderContent("${type.name.lowercase()}:fixture", type, "fixture", "file:///fixture", null, false, 1, null, 0, 0),
+            )
+        }
+
+        types.forEach { type ->
+            coVerify(exactly = 1) {
+                queries.upsert("${type.name.lowercase()}:fixture", type.name, "fixture", "file:///fixture", null, false, 1, null, 0, 0, null)
+            }
+        }
+    }
+
     @Test
     fun `reading progress is persisted in the generic content row`() = runTest {
         val queries = mockk<Reader_contentQueries>()

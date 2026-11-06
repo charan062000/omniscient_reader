@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AlertDialog
@@ -40,6 +43,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -59,9 +63,13 @@ import mihon.app.di.appGraph
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.rounded.Favorite
 import mihon.icons.materialsymbols.rounded.LocalLibrary
+import mihon.icons.materialsymbols.rounded.Delete
+import mihon.icons.materialsymbols.rounded.Download
 import mihon.icons.materialsymbols.roundedfilled.Favorite
 import omniscient.reader.docs.DocsActivity
 import omniscient.reader.docs.PdfLibraryService
+import omniscient.reader.localmedia.LocalMediaService
+import omniscient.reader.localmedia.LocalMediaKind
 import tachiyomi.domain.library.content.model.ReaderContent
 import tachiyomi.domain.library.content.model.ReaderContentType
 
@@ -99,6 +107,18 @@ private fun ReaderLibraryContent() {
     var createCollectionDialog by remember { mutableStateOf(false) }
     var collectionName by remember { mutableStateOf("") }
     var importError by remember { mutableStateOf<String?>(null) }
+    var imageViewerItems by remember { mutableStateOf<List<ReaderContent>?>(null) }
+    var imageViewerIndex by remember { mutableIntStateOf(0) }
+    var gifViewerItems by remember { mutableStateOf<List<ReaderContent>?>(null) }
+    var gifViewerIndex by remember { mutableIntStateOf(0) }
+    var videoViewerItem by remember { mutableStateOf<ReaderContent?>(null) }
+    var archiveViewerItem by remember { mutableStateOf<ReaderContent?>(null) }
+    var pendingRemoval by remember { mutableStateOf<ReaderContent?>(null) }
+    var pendingExport by remember { mutableStateOf<ReaderContent?>(null) }
+    var collectionCoverUri by remember { mutableStateOf<String?>(null) }
+    var scanError by remember { mutableStateOf<String?>(null) }
+    var localGridView by remember { mutableStateOf(true) }
+    var localTypeFilter by remember { mutableStateOf<ReaderContentType?>(null) }
     val contentInCollection by (
         selectedCollectionId?.let(repository::observeContentIdsInCollection) ?: flowOf(emptySet())
     ).collectAsState(initial = emptySet())
@@ -118,10 +138,45 @@ private fun ReaderLibraryContent() {
             }
         }
     }
+    val imageFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) scope.launch {
+            val result = withContext(Dispatchers.IO) { LocalMediaService(context, repository).scanImageFolder(uri) }
+            if (result.errors.isNotEmpty()) scanError = "Imported ${result.imported} of ${result.scanned} scanned files.\n" + result.errors.take(20).joinToString("\n")
+            else android.widget.Toast.makeText(context, "Imported ${result.imported} media files", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+    val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val collectionId = selectedCollectionId
+        if (uri != null && collectionId != null) scope.launch {
+            runCatching {
+                val cover = withContext(Dispatchers.IO) { LocalMediaService(context, repository).importImage(uri, collectionId) }
+                context.getSharedPreferences("local_media", 0).edit().putString("collection_cover_$collectionId", cover.uri).apply()
+                collectionCoverUri = cover.uri
+            }.onFailure { importError = it.message ?: "The folder cover could not be saved." }
+        }
+    }
+    val exportPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { destination ->
+        val sourceContent = pendingExport
+        pendingExport = null
+        if (destination != null && sourceContent != null) scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(Uri.parse(sourceContent.uri))?.use { input ->
+                        context.contentResolver.openOutputStream(destination, "w")?.use { output -> input.copyTo(output) }
+                            ?: error("The selected export location cannot be written")
+                    } ?: error("This media file is no longer available")
+                }
+            }.onFailure { importError = it.message ?: "The media could not be exported." }
+        }
+    }
+    LaunchedEffect(selectedCollectionId) {
+        collectionCoverUri = selectedCollectionId?.let { context.getSharedPreferences("local_media", 0).getString("collection_cover_$it", null) }
+    }
 
-    val visibleItems = remember(content, contentInCollection, selectedCollectionId, section, query, favoritesOnly, recentFirst) {
+    val visibleItems = remember(content, contentInCollection, selectedCollectionId, section, query, favoritesOnly, recentFirst, localTypeFilter) {
         content.asSequence()
             .filter { it.matches(section) }
+            .filter { section != ReaderSection.LOCAL || localTypeFilter == null || it.type == localTypeFilter }
             .filter { selectedCollectionId == null || it.id in contentInCollection }
             .filter { !favoritesOnly || it.favorite }
             .filter { query.isBlank() || it.title.contains(query, ignoreCase = true) }
@@ -163,7 +218,16 @@ private fun ReaderLibraryContent() {
                 }
             }
 
+            if (section == ReaderSection.LOCAL) {
+                Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(null to "All", ReaderContentType.IMAGE to "Images", ReaderContentType.GIF to "GIFs", ReaderContentType.VIDEO to "Videos", ReaderContentType.ARCHIVE to "Archives").forEach { (type, label) ->
+                        AssistChip(onClick = { localTypeFilter = type }, label = { Text(if (localTypeFilter == type) "• $label" else label) })
+                    }
+                }
+            }
+
             Row(verticalAlignment = Alignment.CenterVertically) {
+                collectionCoverUri?.let { cover -> AsyncImage(model = cover, contentDescription = "Category cover", modifier = Modifier.size(36.dp)) }
                 TextButton(onClick = { collectionMenuOpen = true }) {
                     Text(collections.firstOrNull { it.id == selectedCollectionId }?.name ?: "All categories")
                 }
@@ -186,6 +250,7 @@ private fun ReaderLibraryContent() {
                     }
                 }
                 TextButton(onClick = { createCollectionDialog = true }) { Text("New category") }
+                if (selectedCollectionId != null) TextButton(onClick = { coverPicker.launch(arrayOf("image/*")) }) { Text("Set cover") }
             }
 
             OutlinedTextField(
@@ -208,16 +273,20 @@ private fun ReaderLibraryContent() {
                 if (section == ReaderSection.PDF) {
                     TextButtonCompat(label = "Open Documents", onClick = { context.startActivity(DocsActivity.newIntent(context)) })
                 }
+                if (section == ReaderSection.LOCAL) TextButtonCompat(label = if (localGridView) "View: grid" else "View: list", onClick = { localGridView = !localGridView })
             }
 
             if (section != ReaderSection.MANGA) {
-                Button(onClick = { picker.launch(mimeTypes(section)) }) {
-                    Text(when (section) {
-                        ReaderSection.NOVELS -> "Import books"
-                        ReaderSection.PDF -> "Import PDFs"
-                        ReaderSection.LOCAL -> "Import media"
-                        ReaderSection.MANGA -> "Manga"
-                    })
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { picker.launch(mimeTypes(section)) }) {
+                        Text(when (section) {
+                            ReaderSection.NOVELS -> "Import books"
+                            ReaderSection.PDF -> "Import PDFs"
+                            ReaderSection.LOCAL -> "Import media"
+                            ReaderSection.MANGA -> "Manga"
+                        })
+                    }
+                    if (section == ReaderSection.LOCAL) Button(onClick = { imageFolderPicker.launch(null) }) { Text("Scan device folder") }
                 }
             }
 
@@ -233,21 +302,32 @@ private fun ReaderLibraryContent() {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(visibleItems, key = ReaderContent::id) { item ->
-                        ReaderContentCard(
-                            item = item,
-                            onFavorite = {
-                                scope.launch { repository.setFavorite(item.id, !item.favorite) }
-                            },
-                            onOpen = {
-                                when (item.type) {
-                                    ReaderContentType.PDF -> context.startActivity(DocsActivity.newIntent(context, item.id))
-                                    ReaderContentType.EPUB, ReaderContentType.TEXT -> navigator.push(EpubReaderScreen(item.id))
-                                    else -> Unit
-                                }
-                            },
-                        )
+                val openItem: (ReaderContent) -> Unit = { item ->
+                    when (item.type) {
+                        ReaderContentType.PDF -> context.startActivity(DocsActivity.newIntent(context, item.id))
+                        ReaderContentType.EPUB, ReaderContentType.TEXT -> navigator.push(EpubReaderScreen(item.id))
+                        ReaderContentType.IMAGE -> {
+                            val images = visibleItems.filter { it.type == ReaderContentType.IMAGE }
+                            imageViewerItems = images
+                            imageViewerIndex = images.indexOfFirst { it.id == item.id }.coerceAtLeast(0)
+                        }
+                        ReaderContentType.GIF -> {
+                            val gifs = visibleItems.filter { it.type == ReaderContentType.GIF }
+                            gifViewerItems = gifs
+                            gifViewerIndex = gifs.indexOfFirst { it.id == item.id }.coerceAtLeast(0)
+                        }
+                        ReaderContentType.VIDEO -> videoViewerItem = item
+                        ReaderContentType.ARCHIVE -> archiveViewerItem = item
+                    }
+                }
+                val favoriteItem: (ReaderContent) -> Unit = { item -> scope.launch { repository.setFavorite(item.id, !item.favorite) } }
+                if (section == ReaderSection.LOCAL && localGridView) {
+                    LazyVerticalGrid(columns = GridCells.Adaptive(155.dp), verticalArrangement = Arrangement.spacedBy(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        gridItems(visibleItems, key = ReaderContent::id) { item -> ReaderContentCard(item, onFavorite = { favoriteItem(item) }, onOpen = { openItem(item) }, onRemove = if (section == ReaderSection.LOCAL) ({ pendingRemoval = item }) else null, onExport = if (section == ReaderSection.LOCAL) ({ pendingExport = item; exportPicker.launch(item.exportName()) }) else null, compact = true) }
+                    }
+                } else {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(visibleItems, key = ReaderContent::id) { item -> ReaderContentCard(item, onFavorite = { favoriteItem(item) }, onOpen = { openItem(item) }, onRemove = if (section == ReaderSection.LOCAL) ({ pendingRemoval = item }) else null, onExport = if (section == ReaderSection.LOCAL) ({ pendingExport = item; exportPicker.launch(item.exportName()) }) else null, compact = false) }
                     }
                 }
             }
@@ -291,6 +371,68 @@ private fun ReaderLibraryContent() {
             confirmButton = { TextButton(onClick = { importError = null }) { Text("OK") } },
         )
     }
+    scanError?.let { message ->
+        AlertDialog(onDismissRequest = { scanError = null }, title = { Text("Folder scan finished with errors") },
+            text = { Text(message) }, confirmButton = { TextButton(onClick = { scanError = null }) { Text("OK") } })
+    }
+
+    imageViewerItems?.let { images ->
+        if (images.isNotEmpty()) LocalImageViewer(
+            items = images,
+            initialIndex = imageViewerIndex,
+            onClose = { imageViewerItems = null },
+            onIndexChanged = { index ->
+                imageViewerIndex = index
+                val item = images[index]
+                scope.launch { repository.updateProgress(item.id, index.toLong(), images.size.toLong(), System.currentTimeMillis()) }
+            },
+        )
+    }
+    gifViewerItems?.let { gifs ->
+        if (gifs.isNotEmpty()) LocalGifViewer(
+            items = gifs,
+            initialIndex = gifViewerIndex,
+            onClose = { gifViewerItems = null },
+            onIndexChanged = { index ->
+                gifViewerIndex = index
+                val item = gifs[index]
+                scope.launch { repository.updateProgress(item.id, index.toLong(), gifs.size.toLong(), System.currentTimeMillis()) }
+            },
+        )
+    }
+    videoViewerItem?.let { video ->
+        LocalVideoViewer(
+            item = video,
+            onClose = { videoViewerItem = null },
+            onProgress = { position, duration ->
+                scope.launch { repository.updateProgress(video.id, position, duration, System.currentTimeMillis()) }
+            },
+        )
+    }
+    archiveViewerItem?.let { archive ->
+        LocalArchiveBrowser(
+            content = archive,
+            onDismiss = { archiveViewerItem = null },
+            onPreview = { preview ->
+                imageViewerItems = listOf(preview)
+                imageViewerIndex = 0
+            },
+        )
+    }
+    pendingRemoval?.let { item ->
+        AlertDialog(
+            onDismissRequest = { pendingRemoval = null },
+            title = { Text("Remove ${item.title}?") },
+            text = { Text("The app's private copy and its library entry will be removed.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingRemoval = null
+                    scope.launch { LocalMediaService(context, repository).remove(item) }
+                }) { Text("Remove") }
+            },
+            dismissButton = { TextButton(onClick = { pendingRemoval = null }) { Text("Cancel") } },
+        )
+    }
 }
 
 @Composable
@@ -299,26 +441,26 @@ private fun TextButtonCompat(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ReaderContentCard(item: ReaderContent, onFavorite: () -> Unit, onOpen: () -> Unit) {
+private fun ReaderContentCard(item: ReaderContent, onFavorite: () -> Unit, onOpen: () -> Unit, onRemove: (() -> Unit)?, onExport: (() -> Unit)?, compact: Boolean) {
     Card(
         modifier = Modifier.fillMaxWidth().then(
-            if (item.type == ReaderContentType.PDF || item.type == ReaderContentType.EPUB || item.type == ReaderContentType.TEXT) Modifier.clickable(onClick = onOpen) else Modifier,
+            Modifier.clickable(onClick = onOpen),
         ),
     ) {
-        Row(
+        if (compact) {
+            Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (item.coverUri != null) AsyncImage(model = item.coverUri, contentDescription = null, modifier = Modifier.fillMaxWidth().size(120.dp))
+                Text(item.title, style = MaterialTheme.typography.titleMedium, maxLines = 2)
+                Text(item.type.name + if (item.progressTotal > 0) " • ${item.progress}/${item.progressTotal}" else "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.align(Alignment.End)) { ReaderContentActions(item, onFavorite, onExport, onRemove) }
+            }
+        } else Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (item.coverUri != null) {
-                AsyncImage(model = item.coverUri, contentDescription = null, modifier = Modifier.size(48.dp))
-            } else {
-                Icon(
-                    imageVector = MaterialSymbols.Rounded.LocalLibrary,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
+            if (item.coverUri != null) AsyncImage(model = item.coverUri, contentDescription = null, modifier = Modifier.size(48.dp))
+            else Icon(imageVector = MaterialSymbols.Rounded.LocalLibrary, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             Column(modifier = Modifier.weight(1f)) {
                 Text(item.title, style = MaterialTheme.typography.titleMedium)
                 item.author?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
@@ -332,15 +474,23 @@ private fun ReaderContentCard(item: ReaderContent, onFavorite: () -> Unit, onOpe
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            IconButton(onClick = onFavorite) {
-                Icon(
-                    imageVector = if (item.favorite) MaterialSymbols.RoundedFilled.Favorite else MaterialSymbols.Rounded.Favorite,
-                    contentDescription = if (item.favorite) "Remove from favorites" else "Add to favorites",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
+            ReaderContentActions(item, onFavorite, onExport, onRemove)
         }
     }
+}
+
+@Composable
+private fun ReaderContentActions(item: ReaderContent, onFavorite: () -> Unit, onExport: (() -> Unit)?, onRemove: (() -> Unit)?) {
+    IconButton(onClick = onFavorite) {
+        Icon(imageVector = if (item.favorite) MaterialSymbols.RoundedFilled.Favorite else MaterialSymbols.Rounded.Favorite, contentDescription = if (item.favorite) "Remove from favorites" else "Add to favorites", tint = MaterialTheme.colorScheme.primary)
+    }
+    if (onExport != null) IconButton(onClick = onExport) { Icon(imageVector = MaterialSymbols.Rounded.Download, contentDescription = "Export ${item.title}") }
+    if (onRemove != null) IconButton(onClick = onRemove) { Icon(imageVector = MaterialSymbols.Rounded.Delete, contentDescription = "Remove ${item.title}", tint = MaterialTheme.colorScheme.error) }
+}
+
+private fun ReaderContent.exportName(): String {
+    val extension = Uri.parse(uri).lastPathSegment?.substringAfterLast('.', "")?.takeIf { it.isNotBlank() }
+    return title + extension?.let { ".$it" }.orEmpty()
 }
 
 private fun ReaderContent.matches(section: ReaderSection): Boolean = when (section) {
@@ -358,7 +508,7 @@ private fun ReaderContent.matches(section: ReaderSection): Boolean = when (secti
 private fun mimeTypes(section: ReaderSection): Array<String> = when (section) {
     ReaderSection.NOVELS -> arrayOf("application/epub+zip", "text/plain", "application/octet-stream")
     ReaderSection.PDF -> arrayOf("application/pdf")
-    ReaderSection.LOCAL -> arrayOf("image/*", "video/*", "application/zip", "application/x-rar-compressed", "application/x-7z-compressed")
+    ReaderSection.LOCAL -> arrayOf("image/*", "video/*", "application/zip", "application/x-rar-compressed", "application/vnd.rar", "application/x-7z-compressed", "application/x-tar", "application/octet-stream")
     ReaderSection.MANGA -> emptyArray()
 }
 
@@ -384,7 +534,7 @@ private suspend fun importContent(
             mime == "image/gif" || name.endsWith(".gif", true) -> ReaderContentType.GIF
             mime.startsWith("image/") -> ReaderContentType.IMAGE
             mime.startsWith("video/") -> ReaderContentType.VIDEO
-            else -> ReaderContentType.ARCHIVE
+            else -> LocalMediaKind.identify(mime, name) ?: ReaderContentType.ARCHIVE
         }
         ReaderSection.MANGA -> return
     }
@@ -399,6 +549,26 @@ private suspend fun importContent(
     if (type == ReaderContentType.PDF) {
         val imported = PdfLibraryService(context, repository).import(uri)
         collectionId?.let { repository.addToCollection(imported.id, it) }
+        return
+    }
+
+    if (type == ReaderContentType.IMAGE) {
+        LocalMediaService(context, repository).importImage(uri, collectionId)
+        return
+    }
+
+    if (type == ReaderContentType.GIF) {
+        LocalMediaService(context, repository).importGif(uri, collectionId)
+        return
+    }
+
+    if (type == ReaderContentType.VIDEO) {
+        LocalMediaService(context, repository).importVideo(uri, collectionId)
+        return
+    }
+
+    if (type == ReaderContentType.ARCHIVE) {
+        LocalMediaService(context, repository).importArchive(uri, collectionId)
         return
     }
 

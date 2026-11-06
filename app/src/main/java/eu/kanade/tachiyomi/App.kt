@@ -16,6 +16,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.preference.PreferenceManager
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
+import coil3.gif.GifDecoder
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.allowRgb565
@@ -228,6 +229,7 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
                 add(OkHttpNetworkFetcherFactory(callFactoryLazy::value))
                 // Decoder.Factory
                 add(ImageDecoder.Factory())
+                add(GifDecoder.Factory())
                 // Fetcher.Factory
                 add(BufferedSourceFetcher.Factory())
                 add(MangaCoverFetcher.MangaCoverFactory(callFactoryLazy, coverCache, sourceManager))
