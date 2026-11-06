@@ -1,10 +1,9 @@
 package omniscient.reader.docs
 
-import android.graphics.BitmapFactory
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -33,14 +32,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -48,15 +47,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import mihon.app.di.appGraph
@@ -65,49 +63,69 @@ import mihon.icons.materialsymbols.automirroredrounded.ArrowBack
 import mihon.icons.materialsymbols.rounded.Add
 import mihon.icons.materialsymbols.rounded.LocalLibrary
 import mihon.icons.materialsymbols.rounded.MoreVert
-import java.io.File
+import mihon.icons.materialsymbols.rounded.Favorite
+import mihon.icons.materialsymbols.roundedfilled.Favorite
+import tachiyomi.domain.library.content.model.ReaderContent
+import tachiyomi.domain.library.content.model.ReaderContentType
 
-/**
- * The Documents home: a grid of covers for every file the person has added.
- */
 @Composable
 fun DocsLibraryScreen(
-    store: DocStore,
-    onOpen: (DocItem) -> Unit,
+    onOpen: (ReaderContent) -> Unit,
     onExit: () -> Unit,
 ) {
     val context = LocalContext.current
+    val repository = context.appGraph.readerLibraryRepository
+    val service = remember(context, repository) { PdfLibraryService(context, repository) }
     val scope = rememberCoroutineScope()
-
-    var items by remember { mutableStateOf<List<DocItem>?>(null) }
-    var pendingRemove by remember { mutableStateOf<DocItem?>(null) }
+    val documents by repository.observeAll(ReaderContentType.PDF).collectAsState(emptyList())
+    val categories by repository.observeCollections().collectAsState(emptyList())
+    var migrationState by remember { mutableStateOf<Boolean?>(null) }
+    var migrationError by remember { mutableStateOf<String?>(null) }
+    var query by remember { mutableStateOf("") }
+    var favoritesOnly by remember { mutableStateOf(false) }
+    var recentFirst by remember { mutableStateOf(false) }
+    var selectedCategory by remember { mutableStateOf<Long?>(null) }
+    var categoryMenu by remember { mutableStateOf(false) }
+    var pendingRemove by remember { mutableStateOf<ReaderContent?>(null) }
     var importing by remember { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        items = withContext(Dispatchers.IO) { store.all() }
-    }
+    val categoryContentIds by (selectedCategory?.let(repository::observeContentIdsInCollection) ?: flowOf(emptySet()))
+        .collectAsState(emptySet())
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        if (uris.isNotEmpty()) {
-            scope.launch {
-                importing = true
-                var failed = 0
-                withContext(Dispatchers.IO) {
-                    for (uri in uris) {
-                        try {
-                            store.importPdf(uri)
-                        } catch (_: Exception) {
-                            failed++
-                        }
-                    }
-                }
-                items = withContext(Dispatchers.IO) { store.all() }
-                importing = false
-                if (failed > 0) {
-                    Toast.makeText(context, "$failed file(s) could not be opened as a PDF", Toast.LENGTH_LONG).show()
+        if (uris.isNotEmpty()) scope.launch {
+            importing = true
+            val failures = withContext(Dispatchers.IO) {
+                uris.mapNotNull { uri ->
+                    runCatching {
+                        val imported = service.import(uri)
+                        selectedCategory?.let { repository.addToCollection(imported.id, it) }
+                    }.exceptionOrNull()
                 }
             }
+            importing = false
+            if (failures.isNotEmpty()) Toast.makeText(context, "${failures.size} PDF file(s) could not be imported", Toast.LENGTH_LONG).show()
         }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        runCatching { service.migrateLegacyDocuments(DocStore(context)) }
+            .onSuccess { migrationState = true }
+            .onFailure {
+                migrationState = false
+                migrationError = it.message ?: "The legacy PDF library could not be migrated."
+            }
+    }
+
+    val visibleItems = remember(documents, query, favoritesOnly, recentFirst, selectedCategory, categoryContentIds) {
+        documents.asSequence()
+            .filter { selectedCategory == null || it.id in categoryContentIds }
+            .filter { !favoritesOnly || it.favorite }
+            .filter { query.isBlank() || it.title.contains(query, ignoreCase = true) }
+            .sortedWith(
+                compareByDescending<ReaderContent> { it.favorite }
+                    .thenByDescending { if (recentFirst) it.lastOpenedAt ?: it.addedAt else 0L }
+                    .thenBy { if (recentFirst) "" else it.title.lowercase() },
+            ).toList()
     }
 
     Scaffold(
@@ -117,86 +135,80 @@ fun DocsLibraryScreen(
             }
         },
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-        ) {
+        Column(Modifier.fillMaxSize().padding(padding)) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onExit) {
                     Icon(imageVector = MaterialSymbols.AutoMirroredRounded.ArrowBack, contentDescription = "Back")
                 }
-                Text(
-                    text = "Documents",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                Text("Documents", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             }
-            if (importing) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            }
-
-            val list = items
-            when {
-                list == null -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+            if (importing || migrationState == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { categoryMenu = true }) {
+                    Text(categories.firstOrNull { it.id == selectedCategory }?.name ?: "All categories")
+                }
+                DropdownMenu(expanded = categoryMenu, onDismissRequest = { categoryMenu = false }) {
+                    DropdownMenuItem(text = { Text("All categories") }, onClick = { selectedCategory = null; categoryMenu = false })
+                    categories.forEach { category ->
+                        DropdownMenuItem(text = { Text(category.name) }, onClick = { selectedCategory = category.id; categoryMenu = false })
                     }
                 }
-                list.isEmpty() -> EmptyState()
-                else -> {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(140.dp),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(18.dp),
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        items(list, key = { it.id }) { item ->
-                            DocCard(
-                                item = item,
-                                coverFile = store.coverFile(item.id),
-                                onClick = { onOpen(item) },
-                                onRemove = { pendingRemove = item },
-                            )
-                        }
+                TextButton(onClick = { favoritesOnly = !favoritesOnly }) { Text(if (favoritesOnly) "Favorites" else "All") }
+                TextButton(onClick = { recentFirst = !recentFirst }) { Text(if (recentFirst) "Recent" else "A–Z") }
+            }
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                singleLine = true,
+                label = { Text("Search PDFs") },
+            )
+            when {
+                migrationState == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                visibleItems.isEmpty() -> EmptyState()
+                else -> LazyVerticalGrid(
+                    columns = GridCells.Adaptive(140.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(visibleItems, key = ReaderContent::id) { item ->
+                        DocCard(
+                            item = item,
+                            onClick = { onOpen(item) },
+                            onFavorite = { scope.launch { repository.setFavorite(item.id, !item.favorite) } },
+                            onRemove = { pendingRemove = item },
+                        )
                     }
                 }
             }
         }
     }
 
-    pendingRemove?.let { target ->
+    pendingRemove?.let { item ->
         AlertDialog(
             onDismissRequest = { pendingRemove = null },
             title = { Text("Remove from library?") },
-            text = { Text("\"${target.title}\" will be removed from this list. The original file is not deleted.") },
+            text = { Text("\"${item.title}\" will be removed from the library. Original PDFs outside the app are not deleted.") },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        pendingRemove = null
-                        scope.launch {
-                            withContext(Dispatchers.IO) {
-                                store.remove(target.id)
-                                context.appGraph.readerLibraryRepository.remove("pdf:${target.id}")
-                            }
-                            items = withContext(Dispatchers.IO) { store.all() }
-                        }
-                    },
-                ) {
-                    Text("Remove")
-                }
+                TextButton(onClick = {
+                    pendingRemove = null
+                    scope.launch { withContext(Dispatchers.IO) { service.remove(item) } }
+                }) { Text("Remove") }
             },
-            dismissButton = {
-                TextButton(onClick = { pendingRemove = null }) {
-                    Text("Cancel")
-                }
-            },
+            dismissButton = { TextButton(onClick = { pendingRemove = null }) { Text("Cancel") } },
+        )
+    }
+    migrationError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { migrationError = null },
+            title = { Text("PDF migration failed") },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = { migrationError = null }) { Text("OK") } },
         )
     }
 }
@@ -204,143 +216,52 @@ fun DocsLibraryScreen(
 @Composable
 private fun EmptyState() {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(40.dp),
+        Modifier.fillMaxSize().padding(40.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(
-            imageVector = MaterialSymbols.Rounded.LocalLibrary,
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.primary,
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = "Your documents live here",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = "Tap + to add PDF files and read them in one smooth scroll.",
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Icon(MaterialSymbols.Rounded.LocalLibrary, null, Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(16.dp))
+        Text("Your documents live here", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(6.dp))
+        Text("Tap + to import PDF files. The original document stays unchanged.", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
-private fun DocCard(
-    item: DocItem,
-    coverFile: File,
-    onClick: () -> Unit,
-    onRemove: () -> Unit,
-) {
+private fun DocCard(item: ReaderContent, onClick: () -> Unit, onFavorite: () -> Unit, onRemove: () -> Unit) {
     var menuOpen by remember { mutableStateOf(false) }
-    val cover by produceState<ImageBitmap?>(initialValue = null, item.id) {
-        value = withContext(Dispatchers.IO) {
-            BitmapFactory.decodeFile(coverFile.path)?.asImageBitmap()
-        }
-    }
-
-    Column(modifier = Modifier.clickable(onClick = onClick)) {
+    Column(Modifier.clickable(onClick = onClick)) {
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+            Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
-            val image = cover
-            if (image != null) {
-                Image(
-                    bitmap = image,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-            } else {
-                Icon(
-                    imageVector = MaterialSymbols.Rounded.LocalLibrary,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(40.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            Text(
-                text = item.type.uppercase(),
-                color = MaterialTheme.colorScheme.onPrimary,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(8.dp)
-                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-            )
-
-            Box(modifier = Modifier.align(Alignment.TopEnd)) {
-                IconButton(
-                    onClick = { menuOpen = true },
-                    modifier = Modifier
-                        .padding(4.dp)
-                        .size(32.dp)
-                        .background(Color.Black.copy(alpha = 0.45f), CircleShape),
-                ) {
-                    Icon(
-                        imageVector = MaterialSymbols.Rounded.MoreVert,
-                        contentDescription = "More",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp),
-                    )
+            item.coverUri?.let { AsyncImage(it, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop) }
+            if (item.coverUri == null) Icon(MaterialSymbols.Rounded.LocalLibrary, null, Modifier.align(Alignment.Center).size(40.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("PDF", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.TopStart).padding(8.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp))
+            Box(Modifier.align(Alignment.TopEnd)) {
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.padding(4.dp).size(32.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape)) {
+                    Icon(MaterialSymbols.Rounded.MoreVert, "More", tint = Color.White, modifier = Modifier.size(18.dp))
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(
-                        text = { Text("Remove from library") },
-                        onClick = {
-                            menuOpen = false
-                            onRemove()
-                        },
+                        text = { Text(if (item.favorite) "Remove favorite" else "Add favorite") },
+                        onClick = { menuOpen = false; onFavorite() },
+                        leadingIcon = { Icon(if (item.favorite) MaterialSymbols.RoundedFilled.Favorite else MaterialSymbols.Rounded.Favorite, null) },
                     )
+                    DropdownMenuItem(text = { Text("Remove from library") }, onClick = { menuOpen = false; onRemove() })
                 }
             }
-
-            if (item.lastPage > 0 && item.pageCount > 0) {
-                LinearProgressIndicator(
-                    progress = { ((item.lastPage + 1).toFloat() / item.pageCount).coerceIn(0f, 1f) },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth(),
-                )
+            if (item.progress > 0 && item.progressTotal > 0) {
+                LinearProgressIndicator(progress = { ((item.progress + 1).toFloat() / item.progressTotal).coerceIn(0f, 1f) }, modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth())
             }
         }
-
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(Modifier.height(8.dp))
+        Text(item.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(
-            text = item.title,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = progressLabel(item),
+            if (item.progress > 0 && item.progressTotal > 0) "Page ${item.progress + 1} of ${item.progressTotal}" else "${item.progressTotal} pages",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-    }
-}
-
-private fun progressLabel(item: DocItem): String {
-    return if (item.lastPage > 0) {
-        "Page ${item.lastPage + 1} of ${item.pageCount}"
-    } else {
-        "${item.pageCount} pages"
     }
 }

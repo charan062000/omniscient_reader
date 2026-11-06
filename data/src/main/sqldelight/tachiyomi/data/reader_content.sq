@@ -92,6 +92,41 @@ CREATE TABLE epub_bookmark(
 
 CREATE INDEX epub_bookmark_book_index ON epub_bookmark(book_id, chapter_index);
 
+CREATE TABLE pdf_annotation(
+    id TEXT NOT NULL PRIMARY KEY,
+    document_id TEXT NOT NULL,
+    page_index INTEGER NOT NULL,
+    type TEXT NOT NULL,
+    text TEXT,
+    image_uri TEXT,
+    rect_left REAL NOT NULL DEFAULT 0,
+    rect_top REAL NOT NULL DEFAULT 0,
+    rect_right REAL NOT NULL DEFAULT 0,
+    rect_bottom REAL NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY(document_id) REFERENCES reader_content(id) ON DELETE CASCADE
+);
+
+CREATE INDEX pdf_annotation_document_page_index ON pdf_annotation(document_id, page_index);
+
+observePdfAnnotations:
+SELECT id, document_id, page_index, type, text, image_uri, rect_left, rect_top, rect_right, rect_bottom, created_at
+FROM pdf_annotation WHERE document_id = :documentId ORDER BY page_index, created_at;
+
+upsertPdfAnnotation:
+INSERT INTO pdf_annotation(id, document_id, page_index, type, text, image_uri, rect_left, rect_top, rect_right, rect_bottom, created_at)
+VALUES (:id, :documentId, :pageIndex, :type, :text, :imageUri, :left, :top, :right, :bottom, :createdAt)
+ON CONFLICT(id) DO UPDATE SET
+    page_index = excluded.page_index, type = excluded.type, text = excluded.text, image_uri = excluded.image_uri,
+    rect_left = excluded.rect_left, rect_top = excluded.rect_top, rect_right = excluded.rect_right,
+    rect_bottom = excluded.rect_bottom;
+
+removePdfAnnotation:
+DELETE FROM pdf_annotation WHERE id = :id;
+
+removePdfAnnotationsForDocument:
+DELETE FROM pdf_annotation WHERE document_id = :documentId;
+
 observeBookmarks:
 SELECT id, book_id, chapter_index, chapter_title, selected_text, context, created_at
 FROM epub_bookmark WHERE book_id = :bookId ORDER BY created_at DESC;

@@ -5,6 +5,7 @@ import tachiyomi.domain.library.content.model.ReaderCollection
 import tachiyomi.domain.library.content.model.ReaderContent
 import tachiyomi.domain.library.content.model.ReaderContentType
 import tachiyomi.domain.library.content.model.EpubBookmark
+import tachiyomi.domain.library.content.model.PdfAnnotation
 
 /** Persistence boundary for imported books and personal media. It does not own manga records. */
 interface ReaderLibraryRepository {
@@ -22,4 +23,7 @@ interface ReaderLibraryRepository {
     fun observeEpubBookmarks(bookId: String): Flow<List<EpubBookmark>>
     suspend fun addEpubBookmark(bookId: String, chapterIndex: Long, chapterTitle: String, selectedText: String?, context: String?)
     suspend fun removeEpubBookmark(bookmarkId: Long)
+    fun observePdfAnnotations(documentId: String): Flow<List<PdfAnnotation>>
+    suspend fun upsertPdfAnnotation(annotation: PdfAnnotation)
+    suspend fun removePdfAnnotation(annotationId: String)
 }

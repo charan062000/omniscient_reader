@@ -33,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,8 +60,8 @@ import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.rounded.Favorite
 import mihon.icons.materialsymbols.rounded.LocalLibrary
 import mihon.icons.materialsymbols.roundedfilled.Favorite
-import omniscient.reader.docs.DocStore
 import omniscient.reader.docs.DocsActivity
+import omniscient.reader.docs.PdfLibraryService
 import tachiyomi.domain.library.content.model.ReaderContent
 import tachiyomi.domain.library.content.model.ReaderContentType
 
@@ -86,6 +87,7 @@ private fun ReaderLibraryContent() {
     val navigator = LocalNavigator.currentOrThrow
     val repository = context.appGraph.readerLibraryRepository
     val scope = rememberCoroutineScope()
+    var pdfMigrationError by remember { mutableStateOf<String?>(null) }
     val content by repository.observeAll().collectAsState(initial = emptyList())
     val collections by repository.observeCollections().collectAsState(initial = emptyList())
     var section by remember { mutableStateOf(ReaderSection.NOVELS) }
@@ -100,6 +102,11 @@ private fun ReaderLibraryContent() {
     val contentInCollection by (
         selectedCollectionId?.let(repository::observeContentIdsInCollection) ?: flowOf(emptySet())
     ).collectAsState(initial = emptySet())
+
+    LaunchedEffect(Unit) {
+        runCatching { PdfLibraryService(context, repository).migrateLegacyDocuments(omniscient.reader.docs.DocStore(context)) }
+            .onFailure { pdfMigrationError = it.message ?: "Legacy PDFs could not be migrated." }
+    }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) {
@@ -199,15 +206,18 @@ private fun ReaderLibraryContent() {
                     onClick = { recentFirst = !recentFirst },
                 )
                 if (section == ReaderSection.PDF) {
-                    Button(onClick = { context.startActivity(DocsActivity.newIntent(context)) }) {
-                        Text("Open PDF reader")
-                    }
+                    TextButtonCompat(label = "Open Documents", onClick = { context.startActivity(DocsActivity.newIntent(context)) })
                 }
             }
 
-            if (section != ReaderSection.PDF) {
+            if (section != ReaderSection.MANGA) {
                 Button(onClick = { picker.launch(mimeTypes(section)) }) {
-                    Text(if (section == ReaderSection.LOCAL) "Import media" else "Import books")
+                    Text(when (section) {
+                        ReaderSection.NOVELS -> "Import books"
+                        ReaderSection.PDF -> "Import PDFs"
+                        ReaderSection.LOCAL -> "Import media"
+                        ReaderSection.MANGA -> "Manga"
+                    })
                 }
             }
 
@@ -232,7 +242,7 @@ private fun ReaderLibraryContent() {
                             },
                             onOpen = {
                                 when (item.type) {
-                                    ReaderContentType.PDF -> context.startActivity(DocsActivity.newIntent(context))
+                                    ReaderContentType.PDF -> context.startActivity(DocsActivity.newIntent(context, item.id))
                                     ReaderContentType.EPUB, ReaderContentType.TEXT -> navigator.push(EpubReaderScreen(item.id))
                                     else -> Unit
                                 }
@@ -386,24 +396,13 @@ private suspend fun importContent(
         return
     }
 
-    val contentId = if (type == ReaderContentType.PDF) {
-        val imported = DocStore(context).importPdf(uri)
-        repository.upsert(
-            ReaderContent(
-                id = "pdf:${imported.id}",
-                type = type,
-                title = imported.title,
-                uri = imported.uri,
-                coverUri = DocStore(context).coverFile(imported.id).takeIf { it.exists() }?.toURI()?.toString(),
-                favorite = false,
-                addedAt = imported.addedAt,
-                lastOpenedAt = null,
-                progress = imported.lastPage.toLong(),
-                progressTotal = imported.pageCount.toLong(),
-            ),
-        )
-        "pdf:${imported.id}"
-    } else {
+    if (type == ReaderContentType.PDF) {
+        val imported = PdfLibraryService(context, repository).import(uri)
+        collectionId?.let { repository.addToCollection(imported.id, it) }
+        return
+    }
+
+    val contentId = run {
         val id = "${type.name.lowercase()}:${uri}"
         repository.upsert(
             ReaderContent(

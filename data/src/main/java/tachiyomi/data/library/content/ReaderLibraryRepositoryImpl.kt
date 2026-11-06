@@ -12,6 +12,8 @@ import tachiyomi.data.Database
 import tachiyomi.data.subscribeToList
 import tachiyomi.domain.library.content.model.ReaderCollection
 import tachiyomi.domain.library.content.model.EpubBookmark
+import tachiyomi.domain.library.content.model.PdfAnnotation
+import tachiyomi.domain.library.content.model.PdfAnnotationType
 import tachiyomi.domain.library.content.model.ReaderContent
 import tachiyomi.domain.library.content.model.ReaderContentType
 import tachiyomi.domain.library.content.repository.ReaderLibraryRepository
@@ -46,7 +48,10 @@ class ReaderLibraryRepositoryImpl(
     }
 
     override suspend fun remove(id: String) {
-        database.reader_contentQueries.remove(id)
+        database.transaction {
+            database.reader_contentQueries.removePdfAnnotationsForDocument(id)
+            database.reader_contentQueries.remove(id)
+        }
     }
 
     override suspend fun setFavorite(id: String, favorite: Boolean) {
@@ -98,6 +103,29 @@ class ReaderLibraryRepositoryImpl(
         database.reader_contentQueries.removeBookmark(bookmarkId)
     }
 
+    override fun observePdfAnnotations(documentId: String): Flow<List<PdfAnnotation>> =
+        database.reader_contentQueries.observePdfAnnotations(documentId, ::mapPdfAnnotation).subscribeToList()
+
+    override suspend fun upsertPdfAnnotation(annotation: PdfAnnotation) {
+        database.reader_contentQueries.upsertPdfAnnotation(
+            id = annotation.id,
+            documentId = annotation.documentId,
+            pageIndex = annotation.pageIndex,
+            type = annotation.type.name,
+            text = annotation.text,
+            imageUri = annotation.imageUri,
+            left = annotation.left,
+            top = annotation.top,
+            right = annotation.right,
+            bottom = annotation.bottom,
+            createdAt = annotation.createdAt,
+        )
+    }
+
+    override suspend fun removePdfAnnotation(annotationId: String) {
+        database.reader_contentQueries.removePdfAnnotation(annotationId)
+    }
+
     private fun mapContent(
         id: String,
         type: String,
@@ -134,4 +162,21 @@ class ReaderLibraryRepositoryImpl(
 
     private fun mapBookmark(id: Long, book_id: String, chapter_index: Long, chapter_title: String, selected_text: String?, context: String?, created_at: Long) =
         EpubBookmark(id, book_id, chapter_index, chapter_title, selected_text, context, created_at)
+
+    private fun mapPdfAnnotation(
+        id: String,
+        document_id: String,
+        page_index: Long,
+        type: String,
+        text: String?,
+        image_uri: String?,
+        rect_left: Double,
+        rect_top: Double,
+        rect_right: Double,
+        rect_bottom: Double,
+        created_at: Long,
+    ) = PdfAnnotation(
+        id, document_id, page_index, requireNotNull(PdfAnnotationType.entries.firstOrNull { it.name == type }),
+        text, image_uri, rect_left, rect_top, rect_right, rect_bottom, created_at,
+    )
 }

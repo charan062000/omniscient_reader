@@ -1,0 +1,15 @@
+CREATE TABLE pdf_annotation(
+    id TEXT NOT NULL PRIMARY KEY,
+    document_id TEXT NOT NULL,
+    page_index INTEGER NOT NULL,
+    type TEXT NOT NULL,
+    text TEXT,
+    image_uri TEXT,
+    rect_left REAL NOT NULL DEFAULT 0,
+    rect_top REAL NOT NULL DEFAULT 0,
+    rect_right REAL NOT NULL DEFAULT 0,
+    rect_bottom REAL NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY(document_id) REFERENCES reader_content(id) ON DELETE CASCADE
+);
+CREATE INDEX pdf_annotation_document_page_index ON pdf_annotation(document_id, page_index);

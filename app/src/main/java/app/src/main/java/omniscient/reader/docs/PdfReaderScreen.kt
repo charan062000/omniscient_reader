@@ -4,12 +4,17 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.util.LruCache
 import android.view.Window
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -19,9 +24,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -29,28 +37,40 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import coil3.compose.AsyncImage
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -62,9 +82,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.automirroredrounded.ArrowBack
+import mihon.icons.materialsymbols.rounded.Bookmark
+import mihon.icons.materialsymbols.rounded.EditNote
+import mihon.icons.materialsymbols.rounded.Image
+import mihon.icons.materialsymbols.rounded.Search
+import mihon.icons.materialsymbols.rounded.Settings
 import mihon.app.di.appGraph
 import kotlin.math.max
 import kotlin.math.roundToInt
+import java.util.UUID
+import tachiyomi.domain.library.content.model.ReaderContent
+import tachiyomi.domain.library.content.model.PdfAnnotation
+import tachiyomi.domain.library.content.model.PdfAnnotationType
+import tachiyomi.domain.library.content.repository.ReaderLibraryRepository
 
 private const val RENDER_SCALE = 1.25f
 private const val PREFETCH_PAGES = 3
@@ -77,8 +107,8 @@ private val BarColor = Color.Black.copy(alpha = 0.72f)
  */
 @Composable
 fun PdfReaderScreen(
-    item: DocItem,
-    store: DocStore,
+    item: ReaderContent,
+    repository: ReaderLibraryRepository,
     window: Window,
     onClose: () -> Unit,
 ) {
@@ -90,6 +120,37 @@ fun PdfReaderScreen(
     var ratios by remember { mutableStateOf<FloatArray?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var controlsVisible by remember { mutableStateOf(true) }
+    var activePage by remember(item.id) { mutableIntStateOf(item.progress.toInt()) }
+    var searchOpen by remember { mutableStateOf(false) }
+    var bookmarksOpen by remember { mutableStateOf(false) }
+    var noteOpen by remember { mutableStateOf(false) }
+    var settingsOpen by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var noteText by remember { mutableStateOf("") }
+    var searchResults by remember { mutableStateOf<List<PdfTextSearchResult>>(emptyList()) }
+    var requestedPage by remember { mutableStateOf<Int?>(null) }
+    var searchMessage by remember { mutableStateOf<String?>(null) }
+    var margin by remember { mutableStateOf(8f) }
+    val preferences = remember(item.id) { context.getSharedPreferences("pdf-reader-${item.id.hashCode()}", android.content.Context.MODE_PRIVATE) }
+    var pageMode by remember(item.id) { mutableStateOf(preferences.getBoolean("page_mode", false)) }
+    var rtl by remember(item.id) { mutableStateOf(preferences.getBoolean("rtl", false)) }
+    LaunchedEffect(item.id) { margin = preferences.getFloat("margin", 8f) }
+    val annotations by repository.observePdfAnnotations(item.id).collectAsState(emptyList())
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            runCatching {
+                val annotationDir = java.io.File(context.filesDir, "pdf-annotations").apply { mkdirs() }
+                val mime = context.contentResolver.getType(uri).orEmpty()
+                val extension = when (mime) { "image/jpeg" -> "jpg"; "image/webp" -> "webp"; "image/gif" -> "gif"; else -> "png" }
+                val image = java.io.File(annotationDir, "${UUID.randomUUID()}.$extension")
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.use { input -> image.outputStream().use { output -> input.copyTo(output) } }
+                        ?: error("Selected image is no longer available")
+                }
+                repository.upsertPdfAnnotation(PdfAnnotation(UUID.randomUUID().toString(), item.id, activePage.toLong(), PdfAnnotationType.IMAGE, null, Uri.fromFile(image).toString(), .68, .05, .95, .26, System.currentTimeMillis()))
+            }.onFailure { error -> android.widget.Toast.makeText(context, error.message ?: "Image annotation could not be saved", android.widget.Toast.LENGTH_LONG).show() }
+        }
+    }
 
     LaunchedEffect(item.id) {
         try {
@@ -159,25 +220,100 @@ fun PdfReaderScreen(
                     doc = readyDoc,
                     ratios = readyRatios,
                     title = item.title,
-                    startPage = item.lastPage,
+                    startPage = item.progress.toInt(),
                     controlsVisible = controlsVisible,
                     onToggleControls = { controlsVisible = !controlsVisible },
                     onProgress = { page ->
-                        store.updateProgress(item.id, page)
-                        scope.launch {
-                            context.appGraph.readerLibraryRepository.updateProgress(
-                                id = "pdf:${item.id}",
-                                progress = page.toLong(),
-                                total = item.pageCount.toLong(),
-                                openedAt = System.currentTimeMillis(),
-                            )
-                        }
+                        activePage = page
+                        scope.launch { repository.updateProgress(item.id, page.toLong(), item.progressTotal, System.currentTimeMillis()) }
                     },
+                    margin = margin,
+                    annotations = annotations,
+                    searchResults = searchResults,
+                    requestedPage = requestedPage,
+                    pageMode = pageMode,
+                    rtl = rtl,
+                    onSearch = { searchOpen = true },
+                    onBookmark = { page -> scope.launch { repository.upsertPdfAnnotation(PdfAnnotation(UUID.randomUUID().toString(), item.id, page.toLong(), PdfAnnotationType.BOOKMARK, null, null, 0.0, 0.0, 0.0, 0.0, System.currentTimeMillis())) } },
+                    onNote = { noteOpen = true },
+                    onBookmarks = { bookmarksOpen = true },
+                    onSettings = { settingsOpen = true },
+                    onAddImage = { imagePicker.launch(arrayOf("image/*")) },
                     onClose = onClose,
                 )
             }
         }
     }
+
+    if (searchOpen) AlertDialog(
+        onDismissRequest = { searchOpen = false },
+        title = { Text("Search this PDF") },
+        text = {
+            Column {
+                OutlinedTextField(searchQuery, { searchQuery = it }, label = { Text("Search text") }, singleLine = true)
+                searchMessage?.let { Text(it, modifier = Modifier.padding(top = 8.dp)) }
+                searchResults.take(30).forEach { result ->
+                    TextButton(onClick = {
+                        requestedPage = result.pageIndex
+                        scope.launch {
+                            result.bounds.forEach { bounds ->
+                                repository.upsertPdfAnnotation(
+                                    PdfAnnotation(UUID.randomUUID().toString(), item.id, result.pageIndex.toLong(), PdfAnnotationType.HIGHLIGHT,
+                                        result.matchedText, null, bounds.left.toDouble(), bounds.top.toDouble(), bounds.right.toDouble(), bounds.bottom.toDouble(), System.currentTimeMillis()),
+                                )
+                            }
+                        }
+                        searchOpen = false
+                    }) { Text("Page ${result.pageIndex + 1}: ${result.excerpt}", maxLines = 2) }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                scope.launch {
+                    searchMessage = if (Build.VERSION.SDK_INT < 35) "Searchable PDF text is available on Android 15 and newer." else "Searching…"
+                    searchResults = runCatching { doc?.searchText(searchQuery).orEmpty() }.getOrDefault(emptyList())
+                    searchMessage = when {
+                        searchResults.isNotEmpty() -> "${searchResults.size} matching page(s)"
+                        Build.VERSION.SDK_INT < 35 -> "Searchable PDF text is available on Android 15 and newer."
+                        else -> "No text matches. Scanned PDFs may not contain a searchable text layer."
+                    }
+                }
+            }) { Text("Search") }
+        },
+        dismissButton = { TextButton(onClick = { searchOpen = false }) { Text("Close") } },
+    )
+    if (bookmarksOpen) AlertDialog(onDismissRequest = { bookmarksOpen = false }, title = { Text("Page bookmarks") }, text = {
+        Column { annotations.filter { it.type == PdfAnnotationType.BOOKMARK }.forEach { mark ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { requestedPage = mark.pageIndex.toInt(); bookmarksOpen = false }, modifier = Modifier.weight(1f)) { Text("Page ${mark.pageIndex + 1}") }
+                TextButton(onClick = { scope.launch { repository.removePdfAnnotation(mark.id) } }) { Text("Remove") }
+            }
+        } }
+    }, confirmButton = { TextButton(onClick = { bookmarksOpen = false }) { Text("Done") } })
+    if (noteOpen) AlertDialog(
+        onDismissRequest = { noteOpen = false }, title = { Text("Add note") },
+        text = { OutlinedTextField(noteText, { noteText = it }, label = { Text("Note for current page") }) },
+        confirmButton = { TextButton(onClick = {
+            scope.launch { repository.upsertPdfAnnotation(PdfAnnotation(UUID.randomUUID().toString(), item.id, activePage.toLong(), PdfAnnotationType.NOTE, noteText, null, 0.0, 0.0, 0.0, 0.0, System.currentTimeMillis())) }
+            noteText = ""
+            noteOpen = false
+        }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = { noteOpen = false }) { Text("Cancel") } },
+    )
+    if (settingsOpen) AlertDialog(onDismissRequest = { settingsOpen = false }, title = { Text("PDF reader settings") }, text = {
+        Column {
+            Text("Page margin: ${margin.roundToInt()} dp")
+            Slider(margin, { margin = it }, valueRange = 0f..32f)
+            Row {
+                TextButton(onClick = { pageMode = !pageMode }) { Text(if (pageMode) "Page-by-page" else "Continuous scroll") }
+                TextButton(onClick = { rtl = !rtl }) { Text(if (rtl) "Right to left" else "Left to right") }
+            }
+        }
+    }, confirmButton = { TextButton(onClick = {
+        preferences.edit().putFloat("margin", margin).putBoolean("page_mode", pageMode).putBoolean("rtl", rtl).apply()
+        settingsOpen = false
+    }) { Text("Done") } })
 }
 
 @Composable
@@ -189,12 +325,25 @@ private fun PdfPages(
     controlsVisible: Boolean,
     onToggleControls: () -> Unit,
     onProgress: (Int) -> Unit,
+    margin: Float,
+    annotations: List<PdfAnnotation>,
+    searchResults: List<PdfTextSearchResult>,
+    requestedPage: Int?,
+    pageMode: Boolean,
+    rtl: Boolean,
+    onSearch: () -> Unit,
+    onBookmark: (Int) -> Unit,
+    onNote: () -> Unit,
+    onBookmarks: () -> Unit,
+    onSettings: () -> Unit,
+    onAddImage: () -> Unit,
     onClose: () -> Unit,
 ) {
     val count = ratios.size
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = startPage.coerceIn(0, max(0, count - 1)),
     )
+    LaunchedEffect(requestedPage, pageMode) { if (!pageMode) requestedPage?.let { listState.animateScrollToItem(it.coerceIn(0, max(0, count - 1))) } }
     val scope = rememberCoroutineScope()
     val currentPage = listState.firstVisibleItemIndex
     val latestOnProgress by rememberUpdatedState(onProgress)
@@ -214,6 +363,17 @@ private fun PdfPages(
         // A little sharper than the screen so text stays crisp.
         val widthPx = (constraints.maxWidth * RENDER_SCALE).roundToInt()
         val cache = remember(widthPx) { PageCache(cacheSizeKb()) }
+        val dualPage = maxWidth > maxHeight
+        val pageGroups = remember(count, dualPage) { PdfSearchIndex.groupPages(count, dualPage) }
+        val initialPage = pageGroups.indexOfFirst { startPage.coerceIn(0, max(0, count - 1)) in it }.coerceAtLeast(0)
+        val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { pageGroups.size })
+        val currentPagedPage = pageGroups.getOrNull(pagerState.currentPage)?.firstOrNull() ?: 0
+        LaunchedEffect(requestedPage, pageMode, pageGroups) {
+            if (pageMode && requestedPage != null) pagerState.animateScrollToPage(pageGroups.indexOfFirst { requestedPage in it }.coerceAtLeast(0))
+        }
+        LaunchedEffect(pagerState.currentPage, pageMode) {
+            if (pageMode) { delay(PROGRESS_SAVE_DELAY_MS); latestOnProgress(currentPagedPage) }
+        }
 
         // Draw the next pages ahead of time so scrolling never waits.
         LaunchedEffect(currentPage, widthPx) {
@@ -225,7 +385,21 @@ private fun PdfPages(
             }
         }
 
-        LazyColumn(
+        if (pageMode) {
+            HorizontalPager(
+                state = pagerState,
+                reverseLayout = rtl,
+                modifier = Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures(onTap = { onToggleControls() }) },
+            ) { groupIndex ->
+                Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                    val group = pageGroups[groupIndex]
+                    group.forEach { index ->
+                        PdfPage(doc, index, ratios[index], (widthPx / group.size).coerceAtLeast(1), cache, margin,
+                            annotations.filter { it.pageIndex == index.toLong() }, searchResults.filter { it.pageIndex == index }, Modifier.weight(1f))
+                    }
+                }
+            }
+        } else LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
@@ -240,6 +414,9 @@ private fun PdfPages(
                     aspect = ratios[index],
                     widthPx = widthPx,
                     cache = cache,
+                    margin = margin,
+                    annotations = annotations.filter { it.pageIndex == index.toLong() },
+                    searchResults = searchResults.filter { it.pageIndex == index },
                 )
             }
         }
@@ -273,6 +450,12 @@ private fun PdfPages(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                IconButton(onClick = onSearch) { Icon(MaterialSymbols.Rounded.Search, "Search PDF", tint = Color.White) }
+                IconButton(onClick = { onBookmark(if (pageMode) currentPagedPage else currentPage) }) { Icon(MaterialSymbols.Rounded.Bookmark, "Bookmark page", tint = Color.White) }
+                IconButton(onClick = onBookmarks) { Icon(MaterialSymbols.Rounded.Bookmark, "Show bookmarks", tint = Color.White) }
+                IconButton(onClick = onNote) { Icon(MaterialSymbols.Rounded.EditNote, "Add note", tint = Color.White) }
+                IconButton(onClick = onSettings) { Icon(MaterialSymbols.Rounded.Settings, "Reader settings", tint = Color.White) }
+                IconButton(onClick = onAddImage) { Icon(MaterialSymbols.Rounded.Image, "Add image annotation", tint = Color.White) }
             }
         }
 
@@ -291,20 +474,20 @@ private fun PdfPages(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    text = "${currentPage + 1} / $count",
+                    text = "${(if (pageMode) currentPagedPage else currentPage) + 1} / $count",
                     color = Color.White,
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 if (count > 1) {
                     var dragging by remember { mutableStateOf<Float?>(null) }
                     Slider(
-                        value = dragging ?: currentPage.toFloat(),
+                        value = dragging ?: (if (pageMode) currentPagedPage else currentPage).toFloat(),
                         onValueChange = { dragging = it },
                         onValueChangeFinished = {
                             val target = dragging?.roundToInt()
                             dragging = null
                             if (target != null) {
-                                scope.launch { listState.scrollToItem(target) }
+                                scope.launch { if (pageMode) pagerState.animateScrollToPage(pageGroups.indexOfFirst { target in it }.coerceAtLeast(0)) else listState.scrollToItem(target) }
                             }
                         },
                         valueRange = 0f..(count - 1).toFloat(),
@@ -322,7 +505,14 @@ private fun PdfPage(
     aspect: Float,
     widthPx: Int,
     cache: PageCache,
+    margin: Float,
+    annotations: List<PdfAnnotation>,
+    searchResults: List<PdfTextSearchResult>,
+    modifier: Modifier = Modifier,
 ) {
+    var zoomFactor by remember(index) { mutableStateOf(1f) }
+    var translateX by remember(index) { mutableFloatStateOf(0f) }
+    var translateY by remember(index) { mutableFloatStateOf(0f) }
     val bitmap by produceState<Bitmap?>(initialValue = cache.get(index), doc, index, widthPx) {
         if (value == null) {
             value = doc.render(index, widthPx)?.also { cache.put(index, it) }
@@ -330,12 +520,47 @@ private fun PdfPage(
     }
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .aspectRatio(aspect.coerceIn(0.05f, 20f))
-            .background(Color.White),
+            .padding(horizontal = margin.dp, vertical = margin.dp)
+            .background(Color.White)
+            .pointerInput(index) { detectTransformGestures { _, pan, zoom, _ ->
+                zoomFactor = (zoomFactor * zoom).coerceIn(1f, 5f)
+                if (zoomFactor > 1f) {
+                    translateX += pan.x
+                    translateY += pan.y
+                } else {
+                    translateX = 0f
+                    translateY = 0f
+                }
+            } }
+            .pointerInput(index) { detectTapGestures(onDoubleTap = {
+                zoomFactor = if (zoomFactor > 1f) 1f else 2f
+                translateX = 0f
+                translateY = 0f
+            }) }
+            .graphicsLayer(scaleX = zoomFactor, scaleY = zoomFactor, translationX = translateX, translationY = translateY),
     ) {
         bitmap?.let { PageImage(it) }
+        annotations.filter { it.type == PdfAnnotationType.NOTE }.forEach { note ->
+            Text(note.text.orEmpty(), modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).background(Color.Yellow.copy(alpha = 0.85f)).padding(4.dp), color = Color.Black)
+        }
+        annotations.filter { it.type == PdfAnnotationType.IMAGE && it.imageUri != null }.forEach { annotation ->
+            AsyncImage(annotation.imageUri, "PDF page image annotation", Modifier.align(Alignment.TopEnd).padding(8.dp).size(88.dp).clip(RoundedCornerShape(8.dp)))
+        }
+        val bounds = annotations.filter { it.type == PdfAnnotationType.HIGHLIGHT }.map {
+            PdfMatchBounds(it.left.toFloat(), it.top.toFloat(), it.right.toFloat(), it.bottom.toFloat())
+        } + searchResults.flatMap { it.bounds }
+        if (bounds.isNotEmpty()) Canvas(Modifier.fillMaxSize()) {
+            bounds.forEach { rect ->
+                drawRect(
+                    color = Color.Yellow.copy(alpha = 0.3f),
+                    topLeft = androidx.compose.ui.geometry.Offset(rect.left * size.width, rect.top * size.height),
+                    size = androidx.compose.ui.geometry.Size((rect.right - rect.left) * size.width, (rect.bottom - rect.top) * size.height),
+                )
+            }
+        }
     }
 }
 
@@ -356,4 +581,4 @@ private class PageCache(maxKb: Int) : LruCache<Int, Bitmap>(maxKb) {
     override fun sizeOf(key: Int, value: Bitmap): Int = value.byteCount / 1024
 }
 
-private fun cacheSizeKb(): Int = (Runtime.getRuntime().maxMemory() / 1024 / 6).toInt()
+private fun cacheSizeKb(): Int = (Runtime.getRuntime().maxMemory() / 1024 / 6).toInt().coerceIn(8 * 1024, 64 * 1024)
